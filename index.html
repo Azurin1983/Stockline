@@ -384,6 +384,17 @@ function applyRemoteData(data){
   state.users = data.users;
   rebuildInventory();
 }
+// Call after any successful write when connected to a real database, so the app
+// reflects exactly what the backend now has — the backend is the source of truth.
+async function syncFromBackend(){
+  if(!connectedToRealDb) return;
+  try {
+    const data = await callBackend('getData');
+    applyRemoteData(data);
+  } catch(err){
+    toast('Sync failed: '+err.message);
+  }
+}
 function skipToDemoMode(){
   connectedToRealDb = false;
   document.getElementById('dbSetupScreen').style.display='none';
@@ -423,22 +434,33 @@ function logout(){
 }
 function openAddUserForm(){
   if(!isAdmin()) return toast('Only Admins can create users');
+  const identityField = connectedToRealDb
+    ? `<label>Google account email</label><input id="f_user_email" placeholder="e.g. name@gmail.com">`
+    : `<label>Name</label><input id="f_user_name" placeholder="e.g. Full name">`;
   openModal(`
     <div class="modal-head"><h3>New user</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    <label>Name</label><input id="f_user_name" placeholder="e.g. Full name">
+    ${identityField}
     <label>Role</label>
     <select id="f_user_role">
       <option value="Admin">Admin</option>
       <option value="Editor" selected>Editor</option>
       <option value="Viewer">Viewer</option>
     </select>
+    ${connectedToRealDb?'<div class="empty" style="padding:8px 0 0;">They\'ll get this role automatically the first time they sign in with that Google account.</div>':''}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveNewUser()">Save</button></div>
   `);
 }
-function saveNewUser(){
+async function saveNewUser(){
   if(!isAdmin()) return toast('Only Admins can create users');
-  const name = document.getElementById('f_user_name').value.trim();
   const role = document.getElementById('f_user_role').value;
+  if(connectedToRealDb){
+    const email = document.getElementById('f_user_email').value.trim().toLowerCase();
+    if(!email) return toast('Email is required');
+    try { await callBackend('saveUser', {email, name:email, role}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); closeModal(); toast('User added'); renderAll(); return;
+  }
+  const name = document.getElementById('f_user_name').value.trim();
   if(!name) return toast('Name is required');
   const u = {id:newId('user'), name, role};
   state.users.push(u);
@@ -449,6 +471,7 @@ function openEditUser(id){
   if(!u) return;
   openModal(`
     <div class="modal-head"><h3>Edit user</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    ${u.email?`<div class="meta" style="margin-bottom:10px;"><span class="pill">${u.email}</span></div>`:''}
     <label>Name</label><input id="f_edit_user_name" value="${u.name}">
     <label>Role</label>
     <select id="f_edit_user_role">
@@ -459,20 +482,36 @@ function openEditUser(id){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditUser('${id}')">Save changes</button></div>
   `);
 }
-function saveEditUser(id){
+async function saveEditUser(id){
+  const u = state.users.find(x=>x.id===id);
+  if(!u) return;
   const name = document.getElementById('f_edit_user_name').value.trim();
   const role = document.getElementById('f_edit_user_role').value;
   if(!name) return toast('Name is required');
-  const u = state.users.find(x=>x.id===id);
   if(u.role==='Admin' && role!=='Admin' && state.users.filter(x=>x.role==='Admin').length<=1) return toast('At least one Admin is required');
+  if(connectedToRealDb){
+    try { await callBackend('saveUser', {id, name, role}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend();
+    if(currentAuthUser && u.email && currentAuthUser.email===u.email){ currentAuthUser.name=name; currentAuthUser.role=role; currentUser=name; }
+    closeModal(); toast('User updated'); renderAll(); return;
+  }
   u.name = name; u.role = role;
   if(currentAuthUser && currentAuthUser.id===id){ currentAuthUser = u; currentUser = u.name; }
   closeModal(); toast('User updated'); renderAll();
 }
-function deleteUser(id){
-  if(currentAuthUser && currentAuthUser.id===id) return toast('Cannot delete the user you are currently signed in as');
+async function deleteUser(id){
   const u = state.users.find(x=>x.id===id);
+  if(currentAuthUser){
+    const isSelf = connectedToRealDb ? (u && u.email===currentAuthUser.email) : currentAuthUser.id===id;
+    if(isSelf) return toast('Cannot delete the user you are currently signed in as');
+  }
   if(u && u.role==='Admin' && state.users.filter(x=>x.role==='Admin').length<=1) return toast('At least one Admin is required');
+  if(connectedToRealDb){
+    try { await callBackend('deleteUser', {id}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); toast('User deleted'); renderAll(); return;
+  }
   state.users = state.users.filter(x=>x.id!==id);
   toast('User deleted'); renderAll();
 }
@@ -572,7 +611,10 @@ function renderSetup(){
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Catalog #</th><th>Description</th><th>Serialized</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   } else {
-    const rows = state.users.map(u=>`<tr><td>${u.name}${currentAuthUser&&currentAuthUser.id===u.id?' <span class="pill">you</span>':''}</td><td><span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span></td><td style="white-space:nowrap;"><button class="btn ghost sm" onclick="openEditUser('${u.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteUser('${u.id}')">Delete</button></td></tr>`);
+    const rows = state.users.map(u=>{
+      const isYou = currentAuthUser && (connectedToRealDb ? (u.email && currentAuthUser.email===u.email) : currentAuthUser.id===u.id);
+      return `<tr><td>${u.name}${isYou?' <span class="pill">you</span>':''}</td><td><span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span></td><td style="white-space:nowrap;"><button class="btn ghost sm" onclick="openEditUser('${u.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteUser('${u.id}')">Delete</button></td></tr>`;
+    });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   }
   const usersTabBtn = isAdmin() ? `<button class="btn ${setupSub==='users'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='users';renderAll()">Users</button>` : '';
@@ -676,21 +718,31 @@ function openEditLocation(id){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditLocation('${id}')">Save changes</button></div>
   `);
 }
-function saveEditLocation(id){
+async function saveEditLocation(id){
   if(!canManageLocation()) return toast('You do not have permission to edit locations');
   const name = document.getElementById('f_edit_name').value.trim();
   if(!name) return toast('Name is required');
+  if(connectedToRealDb){
+    try { await callBackend('saveLocation', {id, name, image:pendingImageData}); }
+    catch(err){ return toast(err.message); }
+    pendingImageData=null; await syncFromBackend(); closeModal(); toast('Location updated'); renderAll(); return;
+  }
   const l = state.locations.find(x=>x.id===id);
   l.name = name;
   l.image = pendingImageData;
   pendingImageData = null;
   closeModal(); toast('Location updated'); renderAll();
 }
-function deleteLocation(id){
+async function deleteLocation(id){
   if(!canManageLocation()) return toast('You do not have permission to delete locations');
   const l = state.locations.find(x=>x.id===id);
   if(!l) return;
   if(l.isInitial) return toast('Initial Stock cannot be deleted');
+  if(connectedToRealDb){
+    try { await callBackend('deleteLocation', {id}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); toast('Location deleted'); renderAll(); return;
+  }
   if(locationInUse(id)) return toast('Cannot delete — this location has transaction history');
   state.locations = state.locations.filter(x=>x.id!==id);
   toast('Location deleted'); renderAll();
@@ -710,21 +762,33 @@ function openEditPerson(id){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditPerson('${id}')">Save changes</button></div>
   `);
 }
-function saveEditPerson(id){
+async function saveEditPerson(id){
   const p = state.people.find(x=>x.id===id);
   if(!canManagePerson(p)) return toast('You do not have permission to edit this person');
   const name = document.getElementById('f_edit_name').value.trim();
   if(!name) return toast('Name is required');
+  const idNumber = document.getElementById('f_edit_idnum').value.trim();
+  const phone = document.getElementById('f_edit_phone').value.trim();
+  if(connectedToRealDb){
+    try { await callBackend('savePerson', {id, name, idNumber, phone, image:pendingImageData}); }
+    catch(err){ return toast(err.message); }
+    pendingImageData=null; await syncFromBackend(); closeModal(); toast('Person updated'); renderAll(); return;
+  }
   p.name = name;
-  p.idNumber = document.getElementById('f_edit_idnum').value.trim();
-  p.phone = document.getElementById('f_edit_phone').value.trim();
+  p.idNumber = idNumber;
+  p.phone = phone;
   p.image = pendingImageData;
   pendingImageData = null;
   closeModal(); toast('Person updated'); renderAll();
 }
-function deletePerson(id){
+async function deletePerson(id){
   const p = state.people.find(x=>x.id===id);
   if(!canManagePerson(p)) return toast('You do not have permission to delete this person');
+  if(connectedToRealDb){
+    try { await callBackend('deletePerson', {id}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); toast('Person deleted'); renderAll(); return;
+  }
   if(personInUse(id)) return toast('Cannot delete — this person has transaction history');
   state.people = state.people.filter(x=>x.id!==id);
   toast('Person deleted'); renderAll();
@@ -745,7 +809,7 @@ function openEditItem(cat){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditItem('${cat}')">Save changes</button></div>
   `);
 }
-function saveEditItem(oldCat){
+async function saveEditItem(oldCat){
   if(!canManageItem()) return toast('You do not have permission to edit items');
   const it = itemByCat(oldCat);
   if(!it) return;
@@ -755,6 +819,13 @@ function saveEditItem(oldCat){
   if(!newCat || !desc) return toast('Catalog number and description are required');
   if(newCat !== oldCat && itemByCat(newCat)) return toast('That catalog number already exists');
   const wasInUse = itemInUse(oldCat);
+  if(connectedToRealDb){
+    const payload = {catalogNumber:newCat, originalCatalogNumber:oldCat, description:desc, image:pendingImageData};
+    if(!wasInUse) payload.hasSerial = hasSerial;
+    try { await callBackend('saveItem', payload); }
+    catch(err){ return toast(err.message); }
+    pendingImageData=null; await syncFromBackend(); closeModal(); toast('Item updated'); renderAll(); return;
+  }
   if(newCat !== oldCat){
     state.transactions.forEach(t=>{ if(t.catalogNumber===oldCat) t.catalogNumber=newCat; });
   }
@@ -766,8 +837,13 @@ function saveEditItem(oldCat){
   rebuildInventory();
   closeModal(); toast('Item updated'); renderAll();
 }
-function deleteItem(cat){
+async function deleteItem(cat){
   if(!canManageItem()) return toast('You do not have permission to delete items');
+  if(connectedToRealDb){
+    try { await callBackend('deleteItem', {catalogNumber:cat}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); toast('Item deleted'); renderAll(); return;
+  }
   if(itemInUse(cat)) return toast('Cannot delete — this item has transaction history');
   state.items = state.items.filter(x=>x.catalogNumber!==cat);
   toast('Item deleted'); renderAll();
@@ -788,16 +864,26 @@ function openLocationOrPersonForm(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveLocationOrPerson()">Save</button></div>
   `);
 }
-function saveLocationOrPerson(){
+async function saveLocationOrPerson(){
   const name=document.getElementById('f_dir_name').value.trim();
   if(!name) return toast('Name is required');
   if(setupSub==='locations'){
     if(!canCreateLocationsOrItems()) return toast('You do not have permission to add locations');
+    if(connectedToRealDb){
+      try { await callBackend('saveLocation', {name, isInitial:false, image:pendingImageData}); }
+      catch(err){ return toast(err.message); }
+      pendingImageData=null; await syncFromBackend(); closeModal(); toast('Added'); renderAll(); return;
+    }
     state.locations.push({id:newId('loc'), name, isInitial:false, image:pendingImageData, createdBy:currentAuthUser.id});
   } else {
     if(!canCreatePeople()) return toast('You do not have permission to add people');
     const idNumber=document.getElementById('f_dir_idnum').value.trim();
     const phone=document.getElementById('f_dir_phone').value.trim();
+    if(connectedToRealDb){
+      try { await callBackend('savePerson', {name, idNumber, phone, image:pendingImageData}); }
+      catch(err){ return toast(err.message); }
+      pendingImageData=null; await syncFromBackend(); closeModal(); toast('Added'); renderAll(); return;
+    }
     state.people.push({id:newId('per'), name, idNumber, phone, image:pendingImageData, createdBy:currentAuthUser.id});
   }
   pendingImageData = null;
@@ -815,13 +901,18 @@ function openItemForm(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveItem()">Save item</button></div>
   `);
 }
-function saveItem(){
+async function saveItem(){
   if(!canCreateLocationsOrItems()) return toast('You do not have permission to add items');
   const cat=document.getElementById('f_cat').value.trim();
   const desc=document.getElementById('f_desc').value.trim();
   const hasSerial=document.getElementById('f_serial').checked;
   if(!cat || !desc) return toast('Catalog number and description are required');
   if(itemByCat(cat)) return toast('That catalog number already exists');
+  if(connectedToRealDb){
+    try { await callBackend('saveItem', {catalogNumber:cat, description:desc, hasSerial, image:pendingImageData}); }
+    catch(err){ return toast(err.message); }
+    pendingImageData=null; await syncFromBackend(); closeModal(); toast('Item added'); renderAll(); return;
+  }
   state.items.push({catalogNumber:cat, description:desc, hasSerial, image:pendingImageData, createdBy:currentAuthUser.id});
   pendingImageData = null;
   closeModal(); toast('Item added'); renderAll();
@@ -1125,7 +1216,7 @@ function addTxRow(){ captureTxFields(); txDraft.rows.push({catalogNumber:'',amou
 function removeTxRow(i){ captureTxFields(); txDraft.rows.splice(i,1); if(!txDraft.rows.length) txDraft.rows.push({catalogNumber:'',amount:'',serials:[],newSerials:''}); renderTxModal(); }
 function txRowItemChanged(i){ captureTxFields(); txDraft.rows[i].amount=''; txDraft.rows[i].serials=[]; txDraft.rows[i].newSerials=''; renderTxModal(); }
 
-function submitTx(){
+async function submitTx(){
   if(editingTxNumber!==null && !canManageTransactions()) return toast('You do not have permission to edit transactions');
   if(editingTxNumber===null && !canDoTransactions()) return toast('You do not have permission to record transactions');
   captureTxFields();
@@ -1172,16 +1263,34 @@ function submitTx(){
       newRows.push({catalogNumber:r.catalogNumber, fromLocationId:txDraft.fromLocationId, toLocationId:txDraft.toLocationId, amount:amt, fromPersonId:fromPerson, toPersonId:toPerson, serialNumber:null, notes:txDraft.notes||'', transactionUser:txDraft.user||''});
     }
   }
+  const sharedFrom = newRows[0];
+  const backendPayload = {
+    fromLocationId: sharedFrom.fromLocationId, toLocationId: sharedFrom.toLocationId,
+    fromPersonId: sharedFrom.fromPersonId, toPersonId: sharedFrom.toPersonId,
+    notes: sharedFrom.notes, transactionUser: sharedFrom.transactionUser,
+    lines: newRows.map(r=>({catalogNumber:r.catalogNumber, amount:r.amount, serialNumber:r.serialNumber}))
+  };
   if(editingTxNumber !== null){
+    const txNum = editingTxNumber;
+    if(connectedToRealDb){
+      try { await callBackend('updateTransaction', {txNumber:txNum, ...backendPayload}); }
+      catch(err){ return toast(err.message); }
+      editingTxNumber=null; await syncFromBackend(); closeModal(); toast('Transaction updated'); renderAll(); return;
+    }
     const original = state.transactions.find(t=>t.txNumber===editingTxNumber);
     const ts = original ? original.timestamp : Date.now();
-    const txNum = editingTxNumber;
     state.transactions = state.transactions.filter(t=>t.txNumber!==txNum);
     newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: txNum, timestamp: ts+idx, ...row}); });
     editingTxNumber = null;
     rebuildInventory();
     closeModal(); toast('Transaction updated'); renderAll();
   } else {
+    if(connectedToRealDb){
+      try { await callBackend('createTransaction', backendPayload); }
+      catch(err){ return toast(err.message); }
+      currentUser = txDraft.user || currentUser;
+      await syncFromBackend(); closeModal(); toast('Transaction recorded'); renderAll(); return;
+    }
     const baseTs = Date.now();
     const batchNumber = txCounter++;
     newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: batchNumber, timestamp: baseTs+idx, ...row}); });
@@ -1228,8 +1337,13 @@ function openDeleteTxConfirm(txNumber){
     <div class="btn-row"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);" onclick="confirmDeleteTx(${txNumber})">Delete</button></div>
   `);
 }
-function confirmDeleteTx(txNumber){
+async function confirmDeleteTx(txNumber){
   if(!canManageTransactions()) return toast('You do not have permission to delete transactions');
+  if(connectedToRealDb){
+    try { await callBackend('deleteTransaction', {txNumber}); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); closeModal(); toast('Transaction deleted'); renderAll(); return;
+  }
   state.transactions = state.transactions.filter(t=>t.txNumber!==txNumber);
   rebuildInventory();
   closeModal(); toast('Transaction deleted'); renderAll();
@@ -1242,8 +1356,13 @@ function openResetAllTxConfirm(){
     <div class="btn-row"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);" onclick="confirmResetAllTx()">Delete everything</button></div>
   `);
 }
-function confirmResetAllTx(){
+async function confirmResetAllTx(){
   if(!canManageTransactions()) return toast('You do not have permission to do this');
+  if(connectedToRealDb){
+    try { await callBackend('resetTransactions'); }
+    catch(err){ return toast(err.message); }
+    await syncFromBackend(); closeModal(); toast('All transactions cleared'); renderAll(); return;
+  }
   state.transactions = [];
   rebuildInventory();
   closeModal(); toast('All transactions cleared'); renderAll();
