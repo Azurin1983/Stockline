@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Stockline — Inventory Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg:#F4F5F1; --surface:#FFFFFF; --ink:#1B1F1B; --ink-soft:#5C635C; --line:#DEE2D9;
+    --accent:#2F6F5E; --accent-ink:#FFFFFF; --accent-soft:#E4EFEA;
+    --warn:#B5762A; --warn-soft:#F6ECDC; --danger:#B23B3B; --chip-bg:#EDF1EA; --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.brand,nav button span{font-family:'Space Grotesk',sans-serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  #app{max-width:480px;margin:0 auto;min-height:100vh;background:var(--bg);display:flex;flex-direction:column;position:relative;padding-bottom:78px;}
+  header.top{padding:20px 18px 14px;display:flex;align-items:center;justify-content:space-between;}
+  header.top .brand{font-size:19px;font-weight:700;letter-spacing:-0.02em;display:flex;align-items:center;gap:8px;}
+  header.top .brand .dot{width:9px;height:9px;border-radius:2px;background:var(--accent);display:inline-block;transform:rotate(45deg);}
+  header.top .sub{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  main{flex:1;padding:0 16px 24px;}
+  section{display:none;}
+  section.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+  h2.section-title{font-size:15px;font-weight:600;margin:18px 0 10px;display:flex;align-items:center;justify-content:space-between;}
+  h2.section-title .hint{font-size:11px;color:var(--ink-soft);font-weight:400;font-family:'Inter',sans-serif;}
+  .tag{display:inline-flex;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;letter-spacing:.02em;background:var(--chip-bg);border:1px dashed #C6CCC1;border-radius:6px;padding:3px 8px;color:var(--ink);white-space:nowrap;}
+  .tag.serial{background:var(--accent-soft);border-color:#B7D6C9;color:var(--accent);}
+  .pill{font-size:10.5px;padding:2px 7px;border-radius:20px;background:var(--chip-bg);color:var(--ink-soft);font-weight:600;margin-right:4px;display:inline-block;}
+  .pill.warn{background:var(--warn-soft);color:var(--warn);}
+  .list-item{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line);gap:10px;}
+  .list-item:last-child{border-bottom:none;}
+  .list-item .main{flex:1;min-width:0;}
+  .list-item .title{font-weight:600;font-size:14.5px;margin-bottom:3px;}
+  .list-item .meta{font-size:12px;color:var(--ink-soft);display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:3px;}
+  .list-item .side{text-align:right;font-size:12px;color:var(--ink-soft);flex-shrink:0;}
+  button{font-family:'Inter',sans-serif;cursor:pointer;}
+  .btn{background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;padding:12px 16px;font-weight:600;font-size:14px;width:100%;}
+  .btn.secondary{background:var(--surface);color:var(--ink);border:1px solid var(--line);}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent-soft);}
+  .btn.sm{padding:8px 12px;font-size:12.5px;width:auto;}
+  .btn-row{display:flex;gap:8px;}
+  .fab{position:fixed;bottom:92px;right:calc(50% - 240px + 16px);max-width:452px;background:var(--accent);color:#fff;border:none;width:52px;height:52px;border-radius:16px;font-size:24px;box-shadow:0 6px 16px rgba(47,111,94,.35);z-index:20;}
+  @media (max-width:480px){ .fab{right:16px;} }
+  label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin:12px 0 5px;}
+  input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;font-family:'Inter',sans-serif;background:#fff;color:var(--ink);}
+  input.mono,.mono-input{font-family:'IBM Plex Mono',monospace;}
+  .checkbox-row{display:flex;align-items:center;gap:8px;margin:12px 0;}
+  .checkbox-row input{width:auto;}
+  nav.bottom{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);display:flex;max-width:480px;margin:0 auto;z-index:10;}
+  nav.bottom button{flex:1;background:none;border:none;padding:10px 4px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--ink-soft);}
+  nav.bottom button.active{color:var(--accent);}
+  nav.bottom button .ic{width:20px;height:20px;}
+  nav.bottom button span{font-size:10.5px;font-weight:600;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(20,22,18,.45);display:none;align-items:flex-end;justify-content:center;z-index:100;}
+  .modal-backdrop.open{display:flex;}
+  .modal{background:var(--bg);width:100%;max-width:480px;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:18px 18px 26px;animation:slideup .2s ease;}
+  @keyframes slideup{from{transform:translateY(20px);opacity:0;}to{transform:none;opacity:1;}}
+  .modal h3{margin:2px 0 4px;font-size:17px;}
+  .modal .close{position:absolute;right:18px;top:16px;background:none;border:none;font-size:20px;color:var(--ink-soft);}
+  .modal-head{position:relative;margin-bottom:4px;}
+  .dest-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
+  .dest-row select{flex:2;}
+  .dest-row button{flex-shrink:0;background:none;border:none;color:var(--danger);font-size:18px;}
+  .empty{text-align:center;padding:30px 10px;color:var(--ink-soft);font-size:13px;}
+  .toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;z-index:200;opacity:0;transition:opacity .2s;}
+  .toast.show{opacity:1;}
+  .divider-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);font-weight:600;margin:16px 0 8px;}
+  .report-btn{display:flex;justify-content:space-between;align-items:center;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;text-align:left;}
+  .report-btn .r-title{font-weight:600;font-size:14px;}
+  .report-btn .r-desc{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .report-btn .arrow{color:var(--accent);font-size:18px;}
+  .row-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;}
+  #modeIndicator{cursor:pointer;}
+  .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);margin-bottom:14px;-webkit-overflow-scrolling:touch;}
+  table.dtable{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.dtable th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--chip-bg);}
+  table.dtable td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;}
+  table.dtable tbody tr:last-child td{border-bottom:none;}
+  table.dtable td.num{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;}
+  table.dtable td.mono{font-family:'IBM Plex Mono',monospace;font-size:11.5px;}
+  table.dtable td select,table.dtable td input{padding:8px 9px;font-size:13px;}
+  details.inv-group{border-bottom:1px solid var(--line);}
+  details.inv-group:last-of-type{border-bottom:none;}
+  details.inv-group summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 2px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14.5px;}
+  details.inv-group summary::-webkit-details-marker{display:none;}
+  details.inv-group summary .cnt{display:flex;align-items:center;gap:8px;font-family:'Inter',sans-serif;font-weight:400;font-size:12px;color:var(--ink-soft);flex-shrink:0;}
+  details.inv-group summary .chev{display:inline-block;transition:transform .15s;color:var(--accent);font-size:11px;}
+  details.inv-group[open] summary .chev{transform:rotate(90deg);}
+  details.inv-group .table-wrap-flat{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 14px;}
+  table.dtable td.chk{width:30px;padding-right:0;}
+  table.dtable td.chk input{width:auto;}
+  .selection-bar{position:fixed;bottom:78px;left:0;right:0;max-width:480px;margin:0 auto;padding:0 16px;z-index:15;}
+  .selection-bar .inner{background:var(--ink);color:#fff;border-radius:14px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 8px 20px rgba(0,0,0,.28);}
+  .selection-bar .inner span{font-size:13px;}
+  .selection-bar .btn-row{width:auto;}
+  .selection-bar button.btn{width:auto;padding:8px 14px;font-size:13px;}
+  .selection-bar button.btn.secondary{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35);}
+</style>
+</head>
+<body>
+<div id="dbSetupScreen" style="max-width:480px;margin:0 auto;min-height:100vh;padding:24px;">
+  <div style="text-align:center;margin:16px 0 24px;">
+    <div class="brand" style="justify-content:center;font-size:22px;"><span class="dot"></span>Stockline</div>
+    <div class="sub" style="margin-top:6px;">Connect to your database</div>
+  </div>
+  <div id="dbSetupBody"></div>
+</div>
+<div id="loginScreen" style="display:none;max-width:480px;margin:0 auto;min-height:100vh;flex-direction:column;justify-content:center;padding:24px;">
+  <div style="text-align:center;margin-bottom:28px;">
+    <div class="brand" style="justify-content:center;font-size:22px;"><span class="dot"></span>Stockline</div>
+    <div class="sub" style="margin-top:6px;">Select a user to sign in</div>
+  </div>
+  <div id="loginUserList"></div>
+</div>
+<div id="app" style="display:none;">
+  <header class="top">
+    <div>
+      <div class="brand"><span class="dot"></span>Stockline</div>
+      <div class="sub">Locations · People · Items</div>
+    </div>
+    <div class="pill" id="modeIndicator">set user</div>
+  </header>
+  <main id="main">
+    <section id="tab-overview"></section>
+    <section id="tab-setup"></section>
+    <section id="tab-inventory"></section>
+    <section id="tab-move"></section>
+    <section id="tab-reports"></section>
+  </main>
+  <button class="fab" id="fabBtn" style="display:none;">+</button>
+  <nav class="bottom">
+    <button data-tab="overview"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></svg><span>Overview</span></button>
+    <button data-tab="setup"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3-1.9l-1-1.7a1.7 1.7 0 010-1.7l1-1.7a1.7 1.7 0 00-.3-1.9l-1.2-1.2a1.7 1.7 0 00-1.9-.3l-1.7 1a1.7 1.7 0 01-1.7 0l-1.7-1a1.7 1.7 0 00-1.9.3L7.1 5.1a1.7 1.7 0 00-.3 1.9l1 1.7a1.7 1.7 0 010 1.7l-1 1.7a1.7 1.7 0 00.3 1.9l1.2 1.2a1.7 1.7 0 001.9.3l1.7-1a1.7 1.7 0 011.7 0l1.7 1a1.7 1.7 0 001.9-.3z"/></svg><span>Setup</span></button>
+    <button data-tab="inventory"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="9" width="7" height="7"/><rect x="14" y="9" width="7" height="7"/><rect x="8.5" y="3" width="7" height="6"/></svg><span>Inventory</span></button>
+    <button data-tab="move"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span>Move</span></button>
+    <button data-tab="reports"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l3 3v15H6z"/><path d="M9 12h6M9 16h6M9 8h3"/></svg><span>Reports</span></button>
+  </nav>
+</div>
+<div class="modal-backdrop" id="modalBackdrop"><div class="modal" id="modalBody"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ CONSTANTS & STATE ============ */
+const INITIAL_LOC_ID = 'loc_init';
+let idc = 100;
+let txCounter = 1005;
+const newId = (p) => p + '_' + (idc++);
+let currentUser = '';
+let currentAuthUser = null;
+
+/* ============ DATABASE CONNECTION (Google Sheets via Apps Script backend) ============
+ * OAUTH_CLIENT_ID must match the Client ID configured in Google Cloud Console AND
+ * pasted into the Apps Script backend's OAUTH_CLIENT_ID constant — all three must agree.
+ */
+const OAUTH_CLIENT_ID = 'PASTE_YOUR_GOOGLE_OAUTH_CLIENT_ID_HERE.apps.googleusercontent.com';
+let DB_URL = '';
+let googleIdToken = null;
+let connectedToRealDb = false;
+let dbSetupMode = null; // 'create' | 'connect'
+const BASE = Date.now() - 5*86400000;
+
+const state = {
+  users: [
+    {id:'user_1', name:'Admin User', role:'Admin'},
+    {id:'user_2', name:'Noa Shani', role:'Editor'},
+    {id:'user_3', name:'Dana Cohen', role:'Viewer'},
+  ],
+  locations: [
+    {id:INITIAL_LOC_ID, name:'Initial Stock', isInitial:true, image:null, createdBy:null},
+    {id:'loc_1', name:'Main Warehouse', isInitial:false, image:null, createdBy:null},
+    {id:'loc_2', name:'Site Office', isInitial:false, image:null, createdBy:null},
+  ],
+  people: [
+    {id:'per_1', name:'Dana Cohen', idNumber:'302456789', phone:'050-123-4567', image:null, createdBy:null},
+    {id:'per_2', name:'Omer Levi', idNumber:'301122334', phone:'052-765-4321', image:null, createdBy:null},
+    {id:'per_3', name:'Noa Shani', idNumber:'303998877', phone:'054-222-3344', image:null, createdBy:null},
+  ],
+  items: [
+    {catalogNumber:'CAT-1001', description:'Impact Drill 18V', hasSerial:true, image:null, createdBy:null},
+    {catalogNumber:'CAT-1002', description:'Safety Helmet', hasSerial:false, image:null, createdBy:null},
+    {catalogNumber:'CAT-1003', description:'Extension Cable 20m', hasSerial:false, image:null, createdBy:null},
+  ],
+  // Logical demo flow: Noa is the warehouse keeper who receives bulk stock from
+  // Initial Stock, then issues individual items out to Dana and Omer. Every
+  // transaction has a receiving person — nothing ever sits "unassigned".
+  transactions: [
+    {id:'tx_1', txNumber:1001, timestamp:BASE+1000, catalogNumber:'CAT-1002', fromLocationId:INITIAL_LOC_ID, toLocationId:'loc_1', amount:40, fromPersonId:null, toPersonId:'per_3', serialNumber:null, notes:'Initial stock load', transactionUser:'System'},
+    {id:'tx_2', txNumber:1001, timestamp:BASE+1000, catalogNumber:'CAT-1003', fromLocationId:INITIAL_LOC_ID, toLocationId:'loc_1', amount:12, fromPersonId:null, toPersonId:'per_3', serialNumber:null, notes:'Initial stock load', transactionUser:'System'},
+    {id:'tx_3', txNumber:1002, timestamp:BASE+2000, catalogNumber:'CAT-1001', fromLocationId:INITIAL_LOC_ID, toLocationId:'loc_1', amount:1, fromPersonId:null, toPersonId:'per_3', serialNumber:'SN-88213', notes:'Initial stock load', transactionUser:'System'},
+    {id:'tx_4', txNumber:1002, timestamp:BASE+2000, catalogNumber:'CAT-1001', fromLocationId:INITIAL_LOC_ID, toLocationId:'loc_1', amount:1, fromPersonId:null, toPersonId:'per_3', serialNumber:'SN-88214', notes:'Initial stock load', transactionUser:'System'},
+    {id:'tx_5', txNumber:1003, timestamp:BASE+3000, catalogNumber:'CAT-1002', fromLocationId:'loc_1', toLocationId:'loc_2', amount:5, fromPersonId:'per_3', toPersonId:'per_1', serialNumber:null, notes:'', transactionUser:'Noa Shani'},
+    {id:'tx_6', txNumber:1004, timestamp:BASE+4000, catalogNumber:'CAT-1001', fromLocationId:'loc_1', toLocationId:'loc_2', amount:1, fromPersonId:'per_3', toPersonId:'per_2', serialNumber:'SN-88214', notes:'', transactionUser:'Noa Shani'},
+  ],
+  inventory: {},
+  serialState: {},
+};
+
+/* ============ HELPERS ============ */
+function locationLabel(id){ const l=state.locations.find(x=>x.id===id); return l? l.name : '—'; }
+function personLabel(id){ const p=state.people.find(x=>x.id===id); return p? p.name : '—'; }
+function itemByCat(cat){ return state.items.find(i=>i.catalogNumber===cat); }
+function invKey(cat,locId,perId){ return cat+'__'+locId+'__'+(perId||'none'); }
+function currentBalance(cat,locId,perId){ return state.inventory[invKey(cat,locId,perId)] || 0; }
+function fmtDate(ts){ const d=new Date(ts); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}/${d.getFullYear()}`; }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+
+function rebuildInventory(){
+  state.inventory = {}; state.serialState = {};
+  const sorted = [...state.transactions].sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber);
+  sorted.forEach(t=>{
+    const fk=invKey(t.catalogNumber,t.fromLocationId,t.fromPersonId);
+    const tk=invKey(t.catalogNumber,t.toLocationId,t.toPersonId);
+    state.inventory[fk]=(state.inventory[fk]||0)-t.amount;
+    state.inventory[tk]=(state.inventory[tk]||0)+t.amount;
+    if(t.serialNumber){
+      state.serialState[t.serialNumber] = {catalogNumber:t.catalogNumber, locationId:t.toLocationId, personId:t.toPersonId||null};
+    }
+  });
+}
+function availableItemsForSource(locId, perId){
+  if(!locId) return [];
+  if(locId === INITIAL_LOC_ID) return state.items;
+  return state.items.filter(it=>{
+    if(it.hasSerial){
+      return Object.keys(state.serialState).some(sn=>{
+        const s=state.serialState[sn];
+        return s.catalogNumber===it.catalogNumber && s.locationId===locId && (s.personId||'')===(perId||'');
+      });
+    }
+    return currentBalance(it.catalogNumber, locId, perId||null) > 0;
+  });
+}
+function peopleWithStockAtLocation(locId){
+  return state.people.filter(p=>{
+    const hasQty = Object.keys(state.inventory).some(k=>{ const parts=k.split('__'); return parts[1]===locId && parts[2]===p.id && state.inventory[k]>0; });
+    if(hasQty) return true;
+    return Object.keys(state.serialState).some(sn=>{ const s=state.serialState[sn]; return s.locationId===locId && s.personId===p.id; });
+  });
+}
+
+/* ============ NAV ============ */
+let currentTab='overview';
+function showTab(tab){
+  currentTab=tab;
+  document.querySelectorAll('section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  if(tab!=='inventory') selectedInvRows.clear();
+  renderAll();
+}
+document.querySelectorAll('nav.bottom button').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
+document.getElementById('fabBtn').addEventListener('click', ()=>{
+  if(!currentAuthUser || isViewer()) return;
+  if(currentTab==='setup'){
+    if(setupSub==='items'){ if(canCreateLocationsOrItems()) openItemForm(); }
+    else if(setupSub==='users'){ if(isAdmin()) openAddUserForm(); }
+    else if(setupSub==='locations'){ if(canCreateLocationsOrItems()) openLocationOrPersonForm(); }
+    else if(setupSub==='people'){ if(canCreatePeople()) openLocationOrPersonForm(); }
+  } else if(currentTab==='move'){
+    if(canDoTransactions()) openTransactionForm();
+  }
+});
+document.getElementById('modeIndicator').addEventListener('click', ()=>{
+  if(!currentAuthUser) return;
+  openModal(`
+    <div class="modal-head"><h3>${currentAuthUser.name}</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="meta" style="margin-bottom:16px;"><span class="pill ${currentAuthUser.role==='Admin'?'warn':''}">${currentAuthUser.role}</span></div>
+    <button class="btn secondary" onclick="closeModal();logout();">Switch user</button>
+  `);
+});
+function renderUserChip(){
+  const el = document.getElementById('modeIndicator');
+  if(!el || !currentAuthUser) return;
+  el.textContent = currentAuthUser.name;
+}
+/* ============ CONNECT TO DATABASE FLOW ============ */
+function renderDbSetup(){
+  const body = document.getElementById('dbSetupBody');
+  if(!dbSetupMode){
+    body.innerHTML = `
+      <button class="btn" style="margin-bottom:10px;" onclick="dbSetupMode='create';renderDbSetup()">Create a new database</button>
+      <button class="btn secondary" onclick="dbSetupMode='connect';renderDbSetup()">Connect to an existing database</button>
+      <div class="divider-label" style="margin-top:22px;text-align:center;">or</div>
+      <button class="btn ghost sm" style="margin:8px auto 0;display:block;" onclick="skipToDemoMode()">Try demo mode (no setup, local only)</button>
+    `;
+    return;
+  }
+  if(dbSetupMode==='create'){
+    body.innerHTML = `
+      <div class="card" style="font-size:13px;line-height:1.65;">
+        <b>One-time setup — you'll do this once, as the Admin:</b>
+        <ol style="padding-left:18px;margin:10px 0 0;">
+          <li>Create a new blank Google Sheet</li>
+          <li>Go to <b>Extensions → Apps Script</b></li>
+          <li>Delete the placeholder code, paste in the Stockline backend script</li>
+          <li>Set <span class="mono" style="font-size:11.5px;">OAUTH_CLIENT_ID</span> in that script</li>
+          <li><b>Deploy → New deployment → Web app</b><br>Execute as: <b>Me</b> · Who has access: <b>Anyone</b></li>
+          <li>Copy the resulting Web App URL and paste it below</li>
+        </ol>
+      </div>
+      <label>Web App URL</label>
+      <input id="db_url_input" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn secondary" onclick="dbSetupMode=null;renderDbSetup()">Back</button>
+        <button class="btn" onclick="confirmDbUrl()">Continue</button>
+      </div>
+    `;
+  } else {
+    body.innerHTML = `
+      <div class="card" style="font-size:13px;line-height:1.65;">
+        Ask your Admin for the database's Web App URL and paste it below. If this is your first time connecting, you'll be added automatically as a <b>Viewer</b> — your Admin can change that later in Setup → Users.
+      </div>
+      <label>Web App URL</label>
+      <input id="db_url_input" placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn secondary" onclick="dbSetupMode=null;renderDbSetup()">Back</button>
+        <button class="btn" onclick="confirmDbUrl()">Continue</button>
+      </div>
+    `;
+  }
+}
+function confirmDbUrl(){
+  const url = document.getElementById('db_url_input').value.trim();
+  if(!url) return toast('Paste the Web App URL first');
+  DB_URL = url;
+  document.getElementById('dbSetupBody').innerHTML = `
+    <div class="empty" style="padding:6px 0 16px;">Sign in with Google to continue</div>
+    <div id="gsiContainer" style="display:flex;justify-content:center;"></div>
+  `;
+  renderGoogleSignIn('gsiContainer', handleGoogleToken);
+}
+function renderGoogleSignIn(containerId, onToken){
+  if(!window.google || !google.accounts || !google.accounts.id){
+    document.getElementById(containerId).innerHTML = '<div class="empty">Google Sign-In failed to load — check your connection and reload.</div>';
+    return;
+  }
+  google.accounts.id.initialize({ client_id: OAUTH_CLIENT_ID, callback: (resp)=>onToken(resp.credential) });
+  google.accounts.id.renderButton(document.getElementById(containerId), { theme:'outline', size:'large', width:280 });
+}
+async function callBackend(action, payload){
+  const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action, idToken: googleIdToken, payload: payload||{} }) });
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error || 'Request failed');
+  return data.result;
+}
+async function handleGoogleToken(idToken){
+  googleIdToken = idToken;
+  let email, name;
+  try {
+    const payload = JSON.parse(atob(idToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    email = payload.email; name = payload.name || payload.email;
+  } catch(e){ return toast('Could not read Google sign-in — please try again'); }
+  try {
+    const who = await callBackend('whoami', {name});
+    const data = await callBackend('getData');
+    applyRemoteData(data);
+    currentAuthUser = {id: who.email, name: who.name, role: who.role, email: who.email};
+    currentUser = who.name;
+    connectedToRealDb = true;
+    toast(who.isNew ? 'Added to the database as '+who.role : 'Signed in as '+who.role);
+    document.getElementById('dbSetupScreen').style.display='none';
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').style.display='flex';
+    showTab('overview');
+  } catch(err){
+    toast('Connection failed: '+err.message);
+  }
+}
+function applyRemoteData(data){
+  state.locations = data.locations.map(l=>({...l, isInitial: String(l.isInitial)==='true', image:l.image||null}));
+  state.people = data.people.map(p=>({...p, image:p.image||null}));
+  state.items = data.items.map(it=>({...it, hasSerial: String(it.hasSerial)==='true', image:it.image||null}));
+  state.transactions = data.transactions.map(t=>({...t,
+    amount:Number(t.amount), timestamp:Number(t.timestamp), txNumber:Number(t.txNumber),
+    fromPersonId:t.fromPersonId||null, toPersonId:t.toPersonId||null, serialNumber:t.serialNumber||null
+  }));
+  state.users = data.users;
+  rebuildInventory();
+}
+function skipToDemoMode(){
+  connectedToRealDb = false;
+  document.getElementById('dbSetupScreen').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+  renderLoginScreen();
+}
+function renderLoginScreen(){
+  const rows = state.users.map(u=>`
+    <button onclick="loginAs('${u.id}')" style="width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;text-align:left;">
+      <span style="font-weight:600;font-size:14.5px;">${u.name}</span>
+      <span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span>
+    </button>
+  `).join('');
+  document.getElementById('loginUserList').innerHTML = rows || '<div class="empty">No users exist yet. An Admin needs to be created in Setup → Users.</div>';
+}
+function loginAs(id){
+  const u = state.users.find(x=>x.id===id);
+  if(!u) return;
+  currentAuthUser = u;
+  currentUser = u.name;
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  showTab('overview');
+}
+function logout(){
+  currentAuthUser = null;
+  document.getElementById('app').style.display='none';
+  if(connectedToRealDb){
+    connectedToRealDb = false; DB_URL=''; googleIdToken=null; dbSetupMode=null;
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('dbSetupScreen').style.display='block';
+    renderDbSetup();
+  } else {
+    document.getElementById('loginScreen').style.display='flex';
+    renderLoginScreen();
+  }
+}
+function openAddUserForm(){
+  if(!isAdmin()) return toast('Only Admins can create users');
+  openModal(`
+    <div class="modal-head"><h3>New user</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Name</label><input id="f_user_name" placeholder="e.g. Full name">
+    <label>Role</label>
+    <select id="f_user_role">
+      <option value="Admin">Admin</option>
+      <option value="Editor" selected>Editor</option>
+      <option value="Viewer">Viewer</option>
+    </select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveNewUser()">Save</button></div>
+  `);
+}
+function saveNewUser(){
+  if(!isAdmin()) return toast('Only Admins can create users');
+  const name = document.getElementById('f_user_name').value.trim();
+  const role = document.getElementById('f_user_role').value;
+  if(!name) return toast('Name is required');
+  const u = {id:newId('user'), name, role};
+  state.users.push(u);
+  closeModal(); toast('User added'); renderAll();
+}
+function openEditUser(id){
+  const u = state.users.find(x=>x.id===id);
+  if(!u) return;
+  openModal(`
+    <div class="modal-head"><h3>Edit user</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Name</label><input id="f_edit_user_name" value="${u.name}">
+    <label>Role</label>
+    <select id="f_edit_user_role">
+      <option value="Admin" ${u.role==='Admin'?'selected':''}>Admin</option>
+      <option value="Editor" ${u.role==='Editor'?'selected':''}>Editor</option>
+      <option value="Viewer" ${u.role==='Viewer'?'selected':''}>Viewer</option>
+    </select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditUser('${id}')">Save changes</button></div>
+  `);
+}
+function saveEditUser(id){
+  const name = document.getElementById('f_edit_user_name').value.trim();
+  const role = document.getElementById('f_edit_user_role').value;
+  if(!name) return toast('Name is required');
+  const u = state.users.find(x=>x.id===id);
+  if(u.role==='Admin' && role!=='Admin' && state.users.filter(x=>x.role==='Admin').length<=1) return toast('At least one Admin is required');
+  u.name = name; u.role = role;
+  if(currentAuthUser && currentAuthUser.id===id){ currentAuthUser = u; currentUser = u.name; }
+  closeModal(); toast('User updated'); renderAll();
+}
+function deleteUser(id){
+  if(currentAuthUser && currentAuthUser.id===id) return toast('Cannot delete the user you are currently signed in as');
+  const u = state.users.find(x=>x.id===id);
+  if(u && u.role==='Admin' && state.users.filter(x=>x.role==='Admin').length<=1) return toast('At least one Admin is required');
+  state.users = state.users.filter(x=>x.id!==id);
+  toast('User deleted'); renderAll();
+}
+
+/* ============ MODAL ============ */
+function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBackdrop').classList.add('open'); }
+function closeModal(){
+  document.getElementById('modalBackdrop').classList.remove('open');
+  if(editingTxNumber !== null){
+    editingTxNumber = null;
+    rebuildInventory();
+    renderAll();
+  }
+}
+document.getElementById('modalBackdrop').addEventListener('click', e=>{ if(e.target.id==='modalBackdrop') closeModal(); });
+
+/* ============ RENDER: OVERVIEW ============ */
+function renderOverview(){
+  const recent = groupTransactions().sort((a,b)=>b.timestamp-a.timestamp || b.txNumber-a.txNumber).slice(0,5);
+  const locRows = state.locations.map(loc=>{
+    let totalUnits=0;
+    Object.keys(state.inventory).filter(k=>k.split('__')[1]===loc.id && state.inventory[k]!==0).forEach(k=>{ totalUnits+=state.inventory[k]; });
+    return `<tr><td>${loc.name}${loc.isInitial?' <span class="pill warn">source</span>':''}</td><td class="num">${totalUnits}</td></tr>`;
+  }).join('');
+  document.getElementById('tab-overview').innerHTML = `
+    <h2 class="section-title">Locations summary</h2>
+    <div class="table-wrap"><table class="dtable"><thead><tr><th>Location</th><th>Units</th></tr></thead><tbody>${locRows}</tbody></table></div>
+    <h2 class="section-title">Last 5 transactions</h2>
+    ${renderTxTable(recent, 'ov')}
+  `;
+}
+function toggleTxDetail(detailId, chevId){
+  const row = document.getElementById(detailId);
+  const chev = document.getElementById(chevId);
+  if(!row) return;
+  const showing = row.style.display === 'table-row';
+  row.style.display = showing ? 'none' : 'table-row';
+  if(chev) chev.style.transform = showing ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+function renderTxTable(list, idPrefix){
+  if(!list.length) return '<div class="empty">No transactions yet.</div>';
+  const showActions = canManageTransactions();
+  const colCount = showActions ? 6 : 5;
+  const rows = list.map(g=>{
+    const detailId = `tx-detail-${idPrefix}-${g.txNumber}`;
+    const chevId = `tx-chev-${idPrefix}-${g.txNumber}`;
+    const itemRows = g.lines.map(l=>{
+      const it=itemByCat(l.catalogNumber);
+      return `<tr><td class="mono">${l.catalogNumber}</td><td>${it?it.description:''}</td><td class="num">${l.amount}</td><td class="mono">${l.serialNumber||'—'}</td></tr>`;
+    }).join('');
+    const actionsCell = showActions ? `<td style="white-space:nowrap;" onclick="event.stopPropagation();"><button class="btn ghost sm" onclick="openEditTransaction(${g.txNumber})">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="openDeleteTxConfirm(${g.txNumber})">Delete</button></td>` : '';
+    return `<tr class="tx-summary-row" onclick="toggleTxDetail('${detailId}','${chevId}')" style="cursor:pointer;">
+        <td class="mono">#${g.txNumber} <span id="${chevId}" class="chev" style="display:inline-block;transition:transform .15s;">▸</span></td>
+        <td>${fmtDate(g.timestamp)}</td>
+        <td>${locationLabel(g.fromLocationId)}${g.fromPersonId?' ('+personLabel(g.fromPersonId)+')':''}</td>
+        <td>${locationLabel(g.toLocationId)}${g.toPersonId?' ('+personLabel(g.toPersonId)+')':''}</td>
+        <td>${g.transactionUser||'—'}</td>
+        ${actionsCell}
+      </tr>
+      <tr id="${detailId}" style="display:none;">
+        <td colspan="${colCount}" style="padding:0 0 12px;background:var(--bg);">
+          <div class="table-wrap-flat" style="margin:0 0 0 12px;border:1px solid var(--line);border-radius:10px;">
+            <table class="dtable">
+              <thead><tr><th>Catalog #</th><th>Description</th><th>Qty</th><th>Serial</th></tr></thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+  const actionsHeader = showActions ? '<th>Actions</th>' : '';
+  return `<div class="table-wrap"><table class="dtable"><thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>User</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+
+/* ============ RENDER: SETUP ============ */
+let setupSub = 'locations';
+function renderSetup(){
+  if(setupSub==='users' && !isAdmin()) setupSub='locations';
+  let tableHtml;
+  if(setupSub==='locations'){
+    const rows = state.locations.map(l=>{
+      const actions = canManageLocation() ? (l.isInitial? '<span class="hint">protected</span>' : `<button class="btn ghost sm" onclick="openEditLocation('${l.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteLocation('${l.id}')">Delete</button>`) : '—';
+      return `<tr onclick="openImageViewer('location','${l.id}')" style="cursor:pointer;"><td>${imageThumbHtml('location', l.id)}</td><td>${l.name}</td><td>${l.isInitial?'<span class="pill warn">source</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+    });
+    tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Name</th><th>Type</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+  } else if(setupSub==='people'){
+    const rows = state.people.map(p=>{
+      const actions = canManagePerson(p) ? `<button class="btn ghost sm" onclick="openEditPerson('${p.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deletePerson('${p.id}')">Delete</button>` : '—';
+      return `<tr onclick="openImageViewer('person','${p.id}')" style="cursor:pointer;"><td>${imageThumbHtml('person', p.id)}</td><td>${p.name}</td><td class="mono">${p.idNumber||'—'}</td><td>${p.phone||'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+    });
+    tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Name</th><th>ID number</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+  } else if(setupSub==='items'){
+    const rows = state.items.map(it=>{
+      const actions = canManageItem() ? `<button class="btn ghost sm" onclick="openEditItem('${it.catalogNumber}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteItem('${it.catalogNumber}')">Delete</button>` : '—';
+      return `<tr onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${it.catalogNumber}</td><td>${it.description}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+    });
+    tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Catalog #</th><th>Description</th><th>Serialized</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+  } else {
+    const rows = state.users.map(u=>`<tr><td>${u.name}${currentAuthUser&&currentAuthUser.id===u.id?' <span class="pill">you</span>':''}</td><td><span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span></td><td style="white-space:nowrap;"><button class="btn ghost sm" onclick="openEditUser('${u.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteUser('${u.id}')">Delete</button></td></tr>`);
+    tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+  }
+  const usersTabBtn = isAdmin() ? `<button class="btn ${setupSub==='users'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='users';renderAll()">Users</button>` : '';
+  const hint = isViewer() ? '' : '<span class="hint">tap + to add · tap a row for photo</span>';
+  document.getElementById('tab-setup').innerHTML = `
+    <h2 class="section-title">Setup ${hint}</h2>
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button class="btn ${setupSub==='locations'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='locations';renderAll()">Locations</button>
+      <button class="btn ${setupSub==='people'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='people';renderAll()">People</button>
+      <button class="btn ${setupSub==='items'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='items';renderAll()">Items</button>
+      ${usersTabBtn}
+    </div>
+    ${tableHtml || '<div class="empty">Nothing here yet.</div>'}
+  `;
+}
+/* ---- usage checks (an entity is only deletable if it has never appeared in a transaction) ---- */
+function locationInUse(id){ return state.transactions.some(t=>t.fromLocationId===id || t.toLocationId===id); }
+function personInUse(id){ return state.transactions.some(t=>t.fromPersonId===id || t.toPersonId===id); }
+function itemInUse(cat){ return state.transactions.some(t=>t.catalogNumber===cat); }
+
+/* ---- permissions ---- */
+function currentRole(){ return currentAuthUser ? currentAuthUser.role : 'Viewer'; }
+function isAdmin(){ return currentRole()==='Admin'; }
+function isEditor(){ return currentRole()==='Editor'; }
+function isViewer(){ return currentRole()==='Viewer'; }
+function canCreateLocationsOrItems(){ return isAdmin(); }
+function canCreatePeople(){ return isAdmin() || isEditor(); }
+function canManageLocation(){ return isAdmin(); } // edit/delete
+function canManageItem(){ return isAdmin(); } // edit/delete
+function canManagePerson(p){ return isAdmin() || (isEditor() && p && p.createdBy===currentAuthUser.id); }
+function canDoTransactions(){ return isAdmin() || isEditor(); }
+function canManageTransactions(){ return isAdmin(); } // edit/delete/reset history
+
+/* ---- images: locations, people, and items can each optionally have a photo, editable only from Setup ---- */
+let pendingImageData = null;
+function imageFieldHtml(current, previewId){
+  return `
+    <label>Photo (optional)</label>
+    <input type="file" accept="image/*" onchange="handleImagePreview(event,'${previewId}')">
+    <div id="${previewId}" style="margin-top:8px;">${current?`<img src="${current}" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);"><br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`:''}</div>
+  `;
+}
+function handleImagePreview(evt, previewId){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const maxDim = 480;
+      let w=img.width, h=img.height;
+      if(w>maxDim || h>maxDim){
+        if(w>h){ h=Math.round(h*maxDim/w); w=maxDim; } else { w=Math.round(w*maxDim/h); h=maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      pendingImageData = canvas.toDataURL('image/jpeg',0.82);
+      const el = document.getElementById(previewId);
+      if(el) el.innerHTML = `<img src="${pendingImageData}" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);"><br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`;
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearPendingImage(previewId){
+  pendingImageData = null;
+  const el = document.getElementById(previewId);
+  if(el) el.innerHTML = '';
+}
+function imageThumbHtml(entityType, id){
+  let image=null;
+  if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); image=l&&l.image; }
+  else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); image=p&&p.image; }
+  else { const it=itemByCat(id); image=it&&it.image; }
+  return image
+    ? `<img src="${image}" style="width:36px;height:36px;object-fit:cover;border-radius:8px;">`
+    : `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
+}
+function openImageViewer(entityType, id){
+  let name, image, editCall, canEdit;
+  if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); if(!l) return; name=l.name; image=l.image; editCall=`openEditLocation('${id}')`; canEdit=canManageLocation(); }
+  else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); if(!p) return; name=p.name; image=p.image; editCall=`openEditPerson('${id}')`; canEdit=canManagePerson(p); }
+  else { const it=itemByCat(id); if(!it) return; name=it.description; image=it.image; editCall=`openEditItem('${id}')`; canEdit=canManageItem(); }
+  openModal(`
+    <div class="modal-head"><h3>${name}</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    ${image? `<img src="${image}" style="width:100%;border-radius:12px;border:1px solid var(--line);">` : '<div class="empty">No photo added yet.</div>'}
+    ${canEdit ? `<button class="btn ghost sm" style="margin-top:14px;" onclick="closeModal();${editCall}">${image?'Change photo':'Add photo'}</button>` : ''}
+  `);
+}
+/* ---- edit / delete: locations ---- */
+function openEditLocation(id){
+  if(!canManageLocation()) return toast('You do not have permission to edit locations');
+  const l = state.locations.find(x=>x.id===id);
+  if(!l) return;
+  pendingImageData = l.image || null;
+  openModal(`
+    <div class="modal-head"><h3>Edit location</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Name</label><input id="f_edit_name" value="${l.name}">
+    ${imageFieldHtml(l.image,'f_edit_image_preview')}
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditLocation('${id}')">Save changes</button></div>
+  `);
+}
+function saveEditLocation(id){
+  if(!canManageLocation()) return toast('You do not have permission to edit locations');
+  const name = document.getElementById('f_edit_name').value.trim();
+  if(!name) return toast('Name is required');
+  const l = state.locations.find(x=>x.id===id);
+  l.name = name;
+  l.image = pendingImageData;
+  pendingImageData = null;
+  closeModal(); toast('Location updated'); renderAll();
+}
+function deleteLocation(id){
+  if(!canManageLocation()) return toast('You do not have permission to delete locations');
+  const l = state.locations.find(x=>x.id===id);
+  if(!l) return;
+  if(l.isInitial) return toast('Initial Stock cannot be deleted');
+  if(locationInUse(id)) return toast('Cannot delete — this location has transaction history');
+  state.locations = state.locations.filter(x=>x.id!==id);
+  toast('Location deleted'); renderAll();
+}
+/* ---- edit / delete: people ---- */
+function openEditPerson(id){
+  const p = state.people.find(x=>x.id===id);
+  if(!p) return;
+  if(!canManagePerson(p)) return toast('You do not have permission to edit this person');
+  pendingImageData = p.image || null;
+  openModal(`
+    <div class="modal-head"><h3>Edit person</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Name</label><input id="f_edit_name" value="${p.name}">
+    <label>ID number</label><input id="f_edit_idnum" class="mono-input" value="${p.idNumber||''}">
+    <label>Phone number</label><input id="f_edit_phone" value="${p.phone||''}">
+    ${imageFieldHtml(p.image,'f_edit_image_preview')}
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditPerson('${id}')">Save changes</button></div>
+  `);
+}
+function saveEditPerson(id){
+  const p = state.people.find(x=>x.id===id);
+  if(!canManagePerson(p)) return toast('You do not have permission to edit this person');
+  const name = document.getElementById('f_edit_name').value.trim();
+  if(!name) return toast('Name is required');
+  p.name = name;
+  p.idNumber = document.getElementById('f_edit_idnum').value.trim();
+  p.phone = document.getElementById('f_edit_phone').value.trim();
+  p.image = pendingImageData;
+  pendingImageData = null;
+  closeModal(); toast('Person updated'); renderAll();
+}
+function deletePerson(id){
+  const p = state.people.find(x=>x.id===id);
+  if(!canManagePerson(p)) return toast('You do not have permission to delete this person');
+  if(personInUse(id)) return toast('Cannot delete — this person has transaction history');
+  state.people = state.people.filter(x=>x.id!==id);
+  toast('Person deleted'); renderAll();
+}
+/* ---- edit / delete: items ---- */
+function openEditItem(cat){
+  if(!canManageItem()) return toast('You do not have permission to edit items');
+  const it = itemByCat(cat);
+  if(!it) return;
+  const inUse = itemInUse(cat);
+  pendingImageData = it.image || null;
+  openModal(`
+    <div class="modal-head"><h3>Edit item</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Catalog number</label><input id="f_edit_cat" class="mono-input" value="${it.catalogNumber}">
+    <label>Description</label><input id="f_edit_desc" value="${it.description}">
+    <div class="checkbox-row"><input type="checkbox" id="f_edit_serial" ${it.hasSerial?'checked':''} ${inUse?'disabled':''} style="width:auto;"><label style="margin:0;">Tracked by individual serial numbers${inUse?' <span class="hint">(locked — item has transaction history)</span>':''}</label></div>
+    ${imageFieldHtml(it.image,'f_edit_image_preview')}
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditItem('${cat}')">Save changes</button></div>
+  `);
+}
+function saveEditItem(oldCat){
+  if(!canManageItem()) return toast('You do not have permission to edit items');
+  const it = itemByCat(oldCat);
+  if(!it) return;
+  const newCat = document.getElementById('f_edit_cat').value.trim();
+  const desc = document.getElementById('f_edit_desc').value.trim();
+  const hasSerial = document.getElementById('f_edit_serial').checked;
+  if(!newCat || !desc) return toast('Catalog number and description are required');
+  if(newCat !== oldCat && itemByCat(newCat)) return toast('That catalog number already exists');
+  const wasInUse = itemInUse(oldCat);
+  if(newCat !== oldCat){
+    state.transactions.forEach(t=>{ if(t.catalogNumber===oldCat) t.catalogNumber=newCat; });
+  }
+  it.catalogNumber = newCat;
+  it.description = desc;
+  if(!wasInUse) it.hasSerial = hasSerial;
+  it.image = pendingImageData;
+  pendingImageData = null;
+  rebuildInventory();
+  closeModal(); toast('Item updated'); renderAll();
+}
+function deleteItem(cat){
+  if(!canManageItem()) return toast('You do not have permission to delete items');
+  if(itemInUse(cat)) return toast('Cannot delete — this item has transaction history');
+  state.items = state.items.filter(x=>x.catalogNumber!==cat);
+  toast('Item deleted'); renderAll();
+}
+function openLocationOrPersonForm(){
+  if(setupSub==='locations' && !canCreateLocationsOrItems()) return toast('You do not have permission to add locations');
+  if(setupSub==='people' && !canCreatePeople()) return toast('You do not have permission to add people');
+  pendingImageData = null;
+  const extra = setupSub==='people' ? `
+    <label>ID number</label><input id="f_dir_idnum" class="mono-input" placeholder="e.g. 302456789">
+    <label>Phone number</label><input id="f_dir_phone" placeholder="e.g. 050-123-4567">
+  ` : '';
+  openModal(`
+    <div class="modal-head"><h3>New ${setupSub==='locations'?'location':'person'}</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Name</label><input id="f_dir_name" placeholder="${setupSub==='locations'?'e.g. Site B Storage':'e.g. Full name'}">
+    ${extra}
+    ${imageFieldHtml(null,'f_dir_image_preview')}
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveLocationOrPerson()">Save</button></div>
+  `);
+}
+function saveLocationOrPerson(){
+  const name=document.getElementById('f_dir_name').value.trim();
+  if(!name) return toast('Name is required');
+  if(setupSub==='locations'){
+    if(!canCreateLocationsOrItems()) return toast('You do not have permission to add locations');
+    state.locations.push({id:newId('loc'), name, isInitial:false, image:pendingImageData, createdBy:currentAuthUser.id});
+  } else {
+    if(!canCreatePeople()) return toast('You do not have permission to add people');
+    const idNumber=document.getElementById('f_dir_idnum').value.trim();
+    const phone=document.getElementById('f_dir_phone').value.trim();
+    state.people.push({id:newId('per'), name, idNumber, phone, image:pendingImageData, createdBy:currentAuthUser.id});
+  }
+  pendingImageData = null;
+  closeModal(); toast('Added'); renderAll();
+}
+function openItemForm(){
+  if(!canCreateLocationsOrItems()) return toast('You do not have permission to add items');
+  pendingImageData = null;
+  openModal(`
+    <div class="modal-head"><h3>New item</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Catalog number</label><input id="f_cat" class="mono-input" placeholder="e.g. CAT-1004">
+    <label>Description</label><input id="f_desc" placeholder="e.g. Angle Grinder 125mm">
+    <div class="checkbox-row"><input type="checkbox" id="f_serial"><label style="margin:0;">Tracked by individual serial numbers</label></div>
+    ${imageFieldHtml(null,'f_item_image_preview')}
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveItem()">Save item</button></div>
+  `);
+}
+function saveItem(){
+  if(!canCreateLocationsOrItems()) return toast('You do not have permission to add items');
+  const cat=document.getElementById('f_cat').value.trim();
+  const desc=document.getElementById('f_desc').value.trim();
+  const hasSerial=document.getElementById('f_serial').checked;
+  if(!cat || !desc) return toast('Catalog number and description are required');
+  if(itemByCat(cat)) return toast('That catalog number already exists');
+  state.items.push({catalogNumber:cat, description:desc, hasSerial, image:pendingImageData, createdBy:currentAuthUser.id});
+  pendingImageData = null;
+  closeModal(); toast('Item added'); renderAll();
+}
+
+/* ============ RENDER: INVENTORY ============ */
+let invSub = 'locations';
+let openInvGroups = new Set();
+let selectedInvRows = new Map();
+function invRowKey(p){ return p.type==='serial' ? ('s:'+p.serialNumber) : ('q:'+p.catalogNumber+':'+p.locationId+':'+(p.personId||'none')); }
+function invSelectionLock(){
+  if(!selectedInvRows.size) return null;
+  const first = selectedInvRows.values().next().value;
+  return {locationId:first.locationId, personId:first.personId||null};
+}
+function invCheckboxHtml(payload){
+  if(!canDoTransactions()) return '<td class="chk"></td>';
+  const key = invRowKey(payload);
+  const lock = invSelectionLock();
+  const matches = !lock || (lock.locationId===payload.locationId && lock.personId===(payload.personId||null));
+  const checked = selectedInvRows.has(key);
+  return `<td class="chk"><input type="checkbox" ${checked?'checked':''} ${!matches?'disabled':''} onchange='toggleInvRow(${JSON.stringify(payload)}, this.checked)'></td>`;
+}
+function toggleInvRow(payload, checked){
+  const key = invRowKey(payload);
+  if(checked) selectedInvRows.set(key, payload); else selectedInvRows.delete(key);
+  renderInventory();
+}
+function clearInvSelection(){ selectedInvRows.clear(); renderInventory(); }
+function invGroupAttrs(key){ return openInvGroups.has(key) ? 'open' : ''; }
+function renderSelectionBar(){
+  if(!selectedInvRows.size) return '';
+  return `<div class="selection-bar"><div class="inner">
+    <span>${selectedInvRows.size} row${selectedInvRows.size===1?'':'s'} selected</span>
+    <div class="btn-row">
+      <button class="btn secondary" onclick="clearInvSelection()">Clear</button>
+      <button class="btn" onclick="createTxFromSelection()">Create Transaction</button>
+    </div>
+  </div></div>`;
+}
+function createTxFromSelection(){
+  if(!selectedInvRows.size || !canDoTransactions()) return;
+  editingTxNumber = null;
+  const first = selectedInvRows.values().next().value;
+  const byCat = {};
+  selectedInvRows.forEach(p=>{
+    if(!byCat[p.catalogNumber]) byCat[p.catalogNumber] = {amount:0, serials:[]};
+    if(p.type==='serial') byCat[p.catalogNumber].serials.push(p.serialNumber);
+    else byCat[p.catalogNumber].amount += p.amount;
+  });
+  const draftRows = Object.keys(byCat).map(cat=>({
+    catalogNumber: cat,
+    amount: byCat[cat].amount ? String(byCat[cat].amount) : '',
+    serials: byCat[cat].serials,
+    newSerials: ''
+  }));
+  txDraft = {
+    fromLocationId: first.locationId,
+    fromPersonId: first.personId || '',
+    toLocationId: '',
+    toPersonId: '',
+    notes: '',
+    user: currentUser || '',
+    rows: draftRows.length ? draftRows : [{catalogNumber:'',amount:'',serials:[],newSerials:''}]
+  };
+  selectedInvRows.clear();
+  renderInventory();
+  renderTxModal();
+}
+function renderInventory(){
+  let body='';
+  if(invSub==='locations'){
+    body = state.locations.filter(l=>!l.isInitial).map(loc=>{
+      const groupKey = 'loc-'+loc.id;
+      const rowsArr=[]; let unitCount=0;
+      Object.keys(state.inventory).filter(k=>{ const p=k.split('__'); return p[1]===loc.id && state.inventory[k]>0 && !itemByCat(p[0])?.hasSerial; }).forEach(k=>{
+        const parts=k.split('__'); const cat=parts[0], perId=parts[2]; const it=itemByCat(cat);
+        const payload = {type:'qty', catalogNumber:cat, locationId:loc.id, personId: perId!=='none'?perId:null, amount: state.inventory[k]};
+        rowsArr.push({cat, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${perId!=='none'?personLabel(perId):'—'}</td><td class="num">${state.inventory[k]}</td></tr>`});
+        unitCount += state.inventory[k];
+      });
+      Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===loc.id).forEach(sn=>{
+        const s=state.serialState[sn]; const it=itemByCat(s.catalogNumber);
+        const payload = {type:'serial', catalogNumber:s.catalogNumber, locationId:loc.id, personId:s.personId||null, serialNumber:sn};
+        rowsArr.push({cat:s.catalogNumber, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td class="mono">${sn}</td></tr>`});
+        unitCount += 1;
+      });
+      rowsArr.sort((a,b)=>a.cat.localeCompare(b.cat,undefined,{numeric:true,sensitivity:'base'}));
+      const table = rowsArr.length? `<div class="table-wrap-flat"><table class="dtable"><thead><tr><th></th><th>Catalog #</th><th>Description</th><th>Held by</th><th>Qty / Serial</th></tr></thead><tbody>${rowsArr.map(r=>r.html).join('')}</tbody></table></div>` : '<div class="empty">Nothing in stock here.</div>';
+      return `<details class="inv-group" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${loc.name}${loc.isInitial?' <span class="pill warn">source</span>':''}</span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
+    }).join('');
+  } else if(invSub==='people'){
+    body = state.people.map(p=>{
+      const groupKey = 'per-'+p.id;
+      const rowsArr=[]; let unitCount=0;
+      Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[2]===p.id && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).forEach(k=>{
+        const parts=k.split('__'); const cat=parts[0], locId=parts[1]; const it=itemByCat(cat);
+        const payload = {type:'qty', catalogNumber:cat, locationId:locId, personId:p.id, amount: state.inventory[k]};
+        rowsArr.push({cat, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`});
+        unitCount += state.inventory[k];
+      });
+      Object.keys(state.serialState).filter(sn=>state.serialState[sn].personId===p.id).forEach(sn=>{
+        const s=state.serialState[sn]; const it=itemByCat(s.catalogNumber);
+        const payload = {type:'serial', catalogNumber:s.catalogNumber, locationId:s.locationId, personId:p.id, serialNumber:sn};
+        rowsArr.push({cat:s.catalogNumber, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${locationLabel(s.locationId)}</td><td class="mono">${sn}</td></tr>`});
+        unitCount += 1;
+      });
+      if(!rowsArr.length) return '';
+      rowsArr.sort((a,b)=>a.cat.localeCompare(b.cat,undefined,{numeric:true,sensitivity:'base'}));
+      const table = `<div class="table-wrap-flat"><table class="dtable"><thead><tr><th></th><th>Catalog #</th><th>Description</th><th>Location</th><th>Qty / Serial</th></tr></thead><tbody>${rowsArr.map(r=>r.html).join('')}</tbody></table></div>`;
+      return `<details class="inv-group" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${p.name}</span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
+    }).join('') || '<div class="empty">No one is currently holding stock.</div>';
+  } else {
+    body = state.items.map(it=>{
+      const groupKey = 'item-'+it.catalogNumber;
+      const rowsArr=[]; let headers; let unitCount=0;
+      if(it.hasSerial){
+        headers = '<th></th><th>Serial</th><th>Held by</th><th>Location</th>';
+        Object.keys(state.serialState).filter(sn=>state.serialState[sn].catalogNumber===it.catalogNumber && state.serialState[sn].locationId!==INITIAL_LOC_ID).forEach(sn=>{
+          const s=state.serialState[sn];
+          const payload = {type:'serial', catalogNumber:it.catalogNumber, locationId:s.locationId, personId:s.personId||null, serialNumber:sn};
+          rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td class="mono">${sn}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td>${locationLabel(s.locationId)}</td></tr>`);
+          unitCount += 1;
+        });
+      } else {
+        headers = '<th></th><th>Held by</th><th>Location</th><th>Qty</th>';
+        Object.keys(state.inventory).filter(k=>k.startsWith(it.catalogNumber+'__') && k.split('__')[1]!==INITIAL_LOC_ID && state.inventory[k]>0).forEach(k=>{
+          const parts=k.split('__'); const locId=parts[1], perId=parts[2];
+          const payload = {type:'qty', catalogNumber:it.catalogNumber, locationId:locId, personId: perId!=='none'?perId:null, amount: state.inventory[k]};
+          rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td>${perId!=='none'?personLabel(perId):'—'}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`);
+          unitCount += state.inventory[k];
+        });
+      }
+      if(!rowsArr.length) return '';
+      const table = `<div class="table-wrap-flat"><table class="dtable"><thead><tr>${headers}</tr></thead><tbody>${rowsArr.join('')}</tbody></table></div>`;
+      return `<details class="inv-group" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${it.description} <span class="hint">${it.catalogNumber}</span></span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
+    }).join('') || '<div class="empty">Nothing currently in stock.</div>';
+  }
+  document.getElementById('tab-inventory').innerHTML = `
+    <div class="btn-row" style="margin-bottom:14px;">
+      <button class="btn ${invSub==='locations'?'':'secondary'} sm" style="flex:1;" onclick="invSub='locations';renderAll()">By Location</button>
+      <button class="btn ${invSub==='people'?'':'secondary'} sm" style="flex:1;" onclick="invSub='people';renderAll()">By Person</button>
+      <button class="btn ${invSub==='items'?'':'secondary'} sm" style="flex:1;" onclick="invSub='items';renderAll()">By Item</button>
+    </div>
+    <div class="card" style="padding:2px 16px;">${body}</div>
+    ${renderSelectionBar()}
+  `;
+}
+
+/* ============ RENDER: MOVE ============ */
+function groupTransactions(){
+  const map = {};
+  const order = [];
+  state.transactions.forEach(t=>{
+    if(!map[t.txNumber]){
+      map[t.txNumber] = {txNumber:t.txNumber, timestamp:t.timestamp, fromLocationId:t.fromLocationId, toLocationId:t.toLocationId, fromPersonId:t.fromPersonId, toPersonId:t.toPersonId, notes:t.notes, transactionUser:t.transactionUser, lines:[]};
+      order.push(t.txNumber);
+    }
+    map[t.txNumber].lines.push({catalogNumber:t.catalogNumber, amount:t.amount, serialNumber:t.serialNumber});
+  });
+  return order.map(n=>map[n]);
+}
+function renderMove(){
+  const list = groupTransactions().sort((a,b)=>b.timestamp-a.timestamp || b.txNumber-a.txNumber);
+  const resetBtn = (canManageTransactions() && list.length) ? `<button class="btn secondary sm" style="width:auto;color:var(--danger);border-color:#E3C4C4;margin-bottom:14px;" onclick="openResetAllTxConfirm()">Reset all transactions</button>` : '';
+  document.getElementById('tab-move').innerHTML = `
+    <h2 class="section-title">History <span class="hint">${list.length} transactions, newest first</span></h2>
+    ${resetBtn}
+    ${renderTxTable(list, 'mv')}
+  `;
+}
+
+let txDraft = null;
+let editingTxNumber = null;
+function openTransactionForm(prefillCat){
+  if(!canDoTransactions()) return toast('You do not have permission to record transactions');
+  editingTxNumber = null;
+  txDraft = { fromLocationId:'', fromPersonId:'', toLocationId:'', toPersonId:'', notes:'', user: currentUser||'', rows:[{catalogNumber:prefillCat||'', amount:'', serials:[], newSerials:''}] };
+  renderTxModal();
+}
+function renderTxModal(){
+  const locOptions = (selId)=> state.locations.map(l=>`<option value="${l.id}" ${selId===l.id?'selected':''}>${l.name}${l.isInitial?' (source)':''}</option>`).join('');
+  const personOptions = (list, selId)=> list.map(p=>`<option value="${p.id}" ${selId===p.id?'selected':''}>${p.name}</option>`).join('');
+
+  const fromChosen = !!txDraft.fromLocationId;
+  const fromIsInitial = txDraft.fromLocationId === INITIAL_LOC_ID;
+  const eligibleFromPeople = (fromChosen && !fromIsInitial) ? peopleWithStockAtLocation(txDraft.fromLocationId) : [];
+  const readyForRest = fromChosen && (fromIsInitial || !!txDraft.fromPersonId);
+
+  let html = `
+    <div class="modal-head"><h3>${editingTxNumber!==null ? 'Edit Transaction <span class="hint">#'+editingTxNumber+'</span>' : 'New Transaction <span class="hint">#'+txCounter+'</span>'}</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Date</label>
+    <div style="padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--chip-bg);color:var(--ink-soft);font-size:14px;">${fmtDate(editingTxNumber!==null ? (txDraft.originalTimestamp||Date.now()) : Date.now())}</div>
+    <div class="divider-label">From</div>
+    <label>From location</label>
+    <select id="tx_floc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.fromLocationId)}</select>
+  `;
+
+  if(fromChosen && !fromIsInitial){
+    html += `
+      <label>From person (required)</label>
+      <select id="tx_fper" onchange="txHeadChanged()">
+        <option value="">Select…</option>
+        ${personOptions(eligibleFromPeople, txDraft.fromPersonId)}
+      </select>
+      ${!eligibleFromPeople.length ? '<div class="empty">No one currently holds stock at this location.</div>' : ''}
+    `;
+  }
+
+  if(readyForRest){
+    html += `
+      <div class="divider-label">To</div>
+      <label>To location</label>
+      <select id="tx_tloc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.toLocationId)}</select>
+      <label>To person ${txDraft.toLocationId===INITIAL_LOC_ID ? '(optional — returning to source)' : '(required)'}</label>
+      <select id="tx_tper" onchange="txHeadChanged()">${txDraft.toLocationId===INITIAL_LOC_ID?'<option value="">— none —</option>':'<option value="">Select…</option>'}${personOptions(state.people, txDraft.toPersonId)}</select>
+      <div class="divider-label">Items ${fromIsInitial?'<span class="hint">— all catalog items available (source)</span>':'<span class="hint">— only items available at that source</span>'}</div>
+      <div class="table-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Amount / Serial</th><th></th></tr></thead><tbody id="tx_items_wrap">${txDraft.rows.map((r,i)=>renderTxRowHtml(r,i)).join('')}</tbody></table></div>
+      <button class="btn ghost sm" onclick="addTxRow()">+ Add item</button>
+      <label>Notes (optional)</label>
+      <input id="tx_notes" value="${txDraft.notes||''}">
+      <label>Transaction user</label>
+      <input id="tx_user" value="${txDraft.user||''}" placeholder="Who is recording this?">
+      <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="submitTx()">${editingTxNumber!==null?'Save changes':'Confirm transaction'}</button></div>
+      ${editingTxNumber!==null?'<button class="btn secondary sm" style="margin-top:8px;" onclick="closeModal()">Cancel edit</button>':''}
+    `;
+  }
+
+  openModal(html);
+}
+function txHeadChanged(){
+  captureTxFields();
+  const fromIsInitial = txDraft.fromLocationId === INITIAL_LOC_ID;
+  if(fromIsInitial){
+    txDraft.fromPersonId = '';
+  } else if(txDraft.fromLocationId){
+    const eligibleIds = peopleWithStockAtLocation(txDraft.fromLocationId).map(p=>p.id);
+    if(txDraft.fromPersonId && !eligibleIds.includes(txDraft.fromPersonId)) txDraft.fromPersonId='';
+  } else {
+    txDraft.fromPersonId = '';
+  }
+  const ready = txDraft.fromLocationId && (fromIsInitial || txDraft.fromPersonId);
+  if(!ready){ txDraft.toLocationId=''; txDraft.toPersonId=''; }
+  const eligible = ready ? availableItemsForSource(txDraft.fromLocationId, txDraft.fromPersonId).map(x=>x.catalogNumber) : [];
+  txDraft.rows.forEach(r=>{
+    if(r.catalogNumber && !eligible.includes(r.catalogNumber)){ r.catalogNumber=''; r.amount=''; r.serials=[]; r.newSerials=''; }
+  });
+  renderTxModal();
+}
+function renderTxRowHtml(r,i){
+  const fromChosen = !!txDraft.fromLocationId;
+  const eligibleItems = fromChosen ? availableItemsForSource(txDraft.fromLocationId, txDraft.fromPersonId) : [];
+  const it = r.catalogNumber ? itemByCat(r.catalogNumber) : null;
+  let detail='<span class="hint" style="font-size:11.5px;">—</span>';
+  if(it && it.hasSerial){
+    if(txDraft.fromLocationId===INITIAL_LOC_ID){
+      detail = `<input id="tx_row_newserials_${i}" value="${r.newSerials||''}" placeholder="e.g. SN-90211, SN-90212" style="min-width:170px;">`;
+    } else {
+      const matches = Object.keys(state.serialState).filter(sn=>{
+        const s=state.serialState[sn];
+        return s.catalogNumber===it.catalogNumber && s.locationId===txDraft.fromLocationId && (s.personId||'')===(txDraft.fromPersonId||'');
+      });
+      detail = matches.length ? matches.map(sn=>`<label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12.5px;">
+          <input type="checkbox" class="tx_row_serial_${i}" value="${sn}" style="width:auto;" ${r.serials.includes(sn)?'checked':''}>
+          <span class="tag serial">${sn}</span>
+        </label>`).join('') : '<span class="hint" style="font-size:11.5px;">none available</span>';
+    }
+  } else if(it){
+    const hint = txDraft.fromLocationId===INITIAL_LOC_ID ? 'unlimited source' : 'available: '+currentBalance(it.catalogNumber, txDraft.fromLocationId, txDraft.fromPersonId||null);
+    detail = `<input id="tx_row_amt_${i}" type="number" min="1" value="${r.amount}" placeholder="Amount" style="min-width:90px;"><div style="font-size:10px;color:var(--ink-soft);margin-top:3px;">${hint}</div>`;
+  }
+  return `<tr>
+    <td style="min-width:160px;">
+      <select id="tx_row_cat_${i}" onchange="txRowItemChanged(${i})" ${!fromChosen?'disabled':''}>
+        <option value="">${fromChosen? 'Select item…' : 'Choose From location first'}</option>
+        ${eligibleItems.map(x=>`<option value="${x.catalogNumber}" ${r.catalogNumber===x.catalogNumber?'selected':''}>${x.catalogNumber} — ${x.description}</option>`).join('')}
+      </select>
+    </td>
+    <td>${detail}</td>
+    <td style="text-align:right;"><button type="button" onclick="removeTxRow(${i})" style="background:none;border:none;color:var(--danger);font-size:18px;">&times;</button></td>
+  </tr>`;
+}
+function captureTxFields(){
+  const g=id=>document.getElementById(id);
+  if(g('tx_floc')) txDraft.fromLocationId=g('tx_floc').value;
+  if(g('tx_fper')) txDraft.fromPersonId=g('tx_fper').value;
+  if(g('tx_tloc')) txDraft.toLocationId=g('tx_tloc').value;
+  if(g('tx_tper')) txDraft.toPersonId=g('tx_tper').value;
+  if(g('tx_notes')) txDraft.notes=g('tx_notes').value;
+  if(g('tx_user')) txDraft.user=g('tx_user').value;
+  txDraft.rows.forEach((r,i)=>{
+    if(g('tx_row_cat_'+i)) r.catalogNumber=g('tx_row_cat_'+i).value;
+    if(g('tx_row_amt_'+i)) r.amount=g('tx_row_amt_'+i).value;
+    if(g('tx_row_newserials_'+i)) r.newSerials=g('tx_row_newserials_'+i).value;
+    const checks=document.querySelectorAll('.tx_row_serial_'+i+':checked');
+    if(checks.length) r.serials=[...checks].map(c=>c.value);
+    else if(document.querySelector('.tx_row_serial_'+i)) r.serials=[];
+  });
+}
+function addTxRow(){ captureTxFields(); txDraft.rows.push({catalogNumber:'',amount:'',serials:[],newSerials:''}); renderTxModal(); }
+function removeTxRow(i){ captureTxFields(); txDraft.rows.splice(i,1); if(!txDraft.rows.length) txDraft.rows.push({catalogNumber:'',amount:'',serials:[],newSerials:''}); renderTxModal(); }
+function txRowItemChanged(i){ captureTxFields(); txDraft.rows[i].amount=''; txDraft.rows[i].serials=[]; txDraft.rows[i].newSerials=''; renderTxModal(); }
+
+function submitTx(){
+  if(editingTxNumber!==null && !canManageTransactions()) return toast('You do not have permission to edit transactions');
+  if(editingTxNumber===null && !canDoTransactions()) return toast('You do not have permission to record transactions');
+  captureTxFields();
+  if(!txDraft.fromLocationId) return toast('Choose a From location');
+  const fromIsInitial = txDraft.fromLocationId===INITIAL_LOC_ID;
+  if(!fromIsInitial && !txDraft.fromPersonId) return toast('Choose a From person');
+  if(!txDraft.toLocationId) return toast('Choose a To location');
+  const fromPerson = txDraft.fromPersonId||null;
+  const toPerson = txDraft.toPersonId||null;
+  if(txDraft.toLocationId !== INITIAL_LOC_ID && !toPerson) return toast('A receiving person is required, unless you are returning stock to Initial Stock');
+  const validRows = txDraft.rows.filter(r=>r.catalogNumber);
+  if(!validRows.length) return toast('Add at least one item');
+  const newRows=[]; const qtyNeeded={}; const usedSerials=new Set();
+  for(const r of validRows){
+    const it=itemByCat(r.catalogNumber);
+    if(it.hasSerial){
+      if(fromIsInitial){
+        const list=(r.newSerials||'').split(',').map(s=>s.trim()).filter(Boolean);
+        if(!list.length) return toast('Enter at least one serial number for '+it.description);
+        for(const sn of list){
+          if(state.serialState[sn]) return toast(sn+' already exists in the system');
+          if(usedSerials.has(sn)) return toast(sn+' entered twice');
+          usedSerials.add(sn);
+          newRows.push({catalogNumber:r.catalogNumber, fromLocationId:txDraft.fromLocationId, toLocationId:txDraft.toLocationId, amount:1, fromPersonId:null, toPersonId:toPerson, serialNumber:sn, notes:txDraft.notes||'', transactionUser:txDraft.user||''});
+        }
+      } else {
+        if(!r.serials.length) return toast('Select at least one unit for '+it.description);
+        for(const sn of r.serials){
+          if(usedSerials.has(sn)) return toast(sn+' selected twice');
+          usedSerials.add(sn);
+          const cur=state.serialState[sn];
+          if(!cur || cur.locationId!==txDraft.fromLocationId || (cur.personId||null)!==fromPerson) return toast(sn+' is not currently at that from location/person');
+          newRows.push({catalogNumber:r.catalogNumber, fromLocationId:txDraft.fromLocationId, toLocationId:txDraft.toLocationId, amount:1, fromPersonId:fromPerson, toPersonId:toPerson, serialNumber:sn, notes:txDraft.notes||'', transactionUser:txDraft.user||''});
+        }
+      }
+    } else {
+      const amt=parseInt(r.amount,10);
+      if(!amt || amt<=0) return toast('Enter an amount for '+it.description);
+      qtyNeeded[r.catalogNumber]=(qtyNeeded[r.catalogNumber]||0)+amt;
+      if(!fromIsInitial){
+        const bal=currentBalance(r.catalogNumber, txDraft.fromLocationId, fromPerson);
+        if(qtyNeeded[r.catalogNumber] > bal) return toast(`Only ${bal} of ${it.description} available at that from location/person`);
+      }
+      newRows.push({catalogNumber:r.catalogNumber, fromLocationId:txDraft.fromLocationId, toLocationId:txDraft.toLocationId, amount:amt, fromPersonId:fromPerson, toPersonId:toPerson, serialNumber:null, notes:txDraft.notes||'', transactionUser:txDraft.user||''});
+    }
+  }
+  if(editingTxNumber !== null){
+    const original = state.transactions.find(t=>t.txNumber===editingTxNumber);
+    const ts = original ? original.timestamp : Date.now();
+    const txNum = editingTxNumber;
+    state.transactions = state.transactions.filter(t=>t.txNumber!==txNum);
+    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: txNum, timestamp: ts+idx, ...row}); });
+    editingTxNumber = null;
+    rebuildInventory();
+    closeModal(); toast('Transaction updated'); renderAll();
+  } else {
+    const baseTs = Date.now();
+    const batchNumber = txCounter++;
+    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: batchNumber, timestamp: baseTs+idx, ...row}); });
+    currentUser = txDraft.user || currentUser;
+    rebuildInventory();
+    closeModal(); toast('Transaction recorded'); renderAll();
+  }
+}
+function openEditTransaction(txNumber){
+  if(!canManageTransactions()) return toast('You do not have permission to edit transactions');
+  const rows = state.transactions.filter(t=>t.txNumber===txNumber);
+  if(!rows.length) return;
+  const first = rows[0];
+  editingTxNumber = txNumber;
+  // Recompute inventory as if this transaction never happened, so amounts/eligibility in the
+  // form reflect the state right before it — the true ledger is restored on save or cancel.
+  const fullList = state.transactions;
+  state.transactions = fullList.filter(t=>t.txNumber!==txNumber);
+  rebuildInventory();
+  state.transactions = fullList;
+  const byCat = {};
+  rows.forEach(r=>{
+    if(!byCat[r.catalogNumber]) byCat[r.catalogNumber] = {catalogNumber:r.catalogNumber, amount:0, serials:[]};
+    if(r.serialNumber) byCat[r.catalogNumber].serials.push(r.serialNumber);
+    else byCat[r.catalogNumber].amount += r.amount;
+  });
+  txDraft = {
+    originalTimestamp: first.timestamp,
+    fromLocationId: first.fromLocationId,
+    fromPersonId: first.fromPersonId || '',
+    toLocationId: first.toLocationId,
+    toPersonId: first.toPersonId || '',
+    notes: first.notes || '',
+    user: first.transactionUser || '',
+    rows: Object.values(byCat).map(b=>({catalogNumber:b.catalogNumber, amount:b.amount?String(b.amount):'', serials:b.serials, newSerials:''}))
+  };
+  renderTxModal();
+}
+function openDeleteTxConfirm(txNumber){
+  if(!canManageTransactions()) return toast('You do not have permission to delete transactions');
+  openModal(`
+    <div class="modal-head"><h3>Delete transaction #${txNumber}?</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="empty" style="padding:6px 0 18px;">This permanently removes this transaction and recalculates inventory. This can't be undone.</div>
+    <div class="btn-row"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);" onclick="confirmDeleteTx(${txNumber})">Delete</button></div>
+  `);
+}
+function confirmDeleteTx(txNumber){
+  if(!canManageTransactions()) return toast('You do not have permission to delete transactions');
+  state.transactions = state.transactions.filter(t=>t.txNumber!==txNumber);
+  rebuildInventory();
+  closeModal(); toast('Transaction deleted'); renderAll();
+}
+function openResetAllTxConfirm(){
+  if(!canManageTransactions()) return toast('You do not have permission to do this');
+  openModal(`
+    <div class="modal-head"><h3>Reset all transactions?</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="empty" style="padding:6px 0 18px;">This permanently deletes every transaction and resets all inventory to zero, starting completely from scratch. This can't be undone.</div>
+    <div class="btn-row"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);" onclick="confirmResetAllTx()">Delete everything</button></div>
+  `);
+}
+function confirmResetAllTx(){
+  if(!canManageTransactions()) return toast('You do not have permission to do this');
+  state.transactions = [];
+  rebuildInventory();
+  closeModal(); toast('All transactions cleared'); renderAll();
+}
+
+/* ============ RENDER: REPORTS ============ */
+function renderReports(){
+  document.getElementById('tab-reports').innerHTML = `
+    <h2 class="section-title">Reports</h2>
+    <button class="report-btn" onclick="openTxReportPicker()"><div><div class="r-title">Transaction report</div><div class="r-desc">Full detail for one transaction, by ID</div></div><div class="arrow">↓</div></button>
+    <button class="report-btn" onclick="openPersonReportPicker()"><div><div class="r-title">Inventory by person</div><div class="r-desc">What a selected person currently holds</div></div><div class="arrow">↓</div></button>
+    <button class="report-btn" onclick="openLocationReportPicker()"><div><div class="r-title">Inventory by location</div><div class="r-desc">What's currently at a selected location</div></div><div class="arrow">↓</div></button>
+    <button class="report-btn" onclick="openCountFormPicker()"><div><div class="r-title">Inventory count form</div><div class="r-desc">Printable count sheet for a selected location</div></div><div class="arrow">↓</div></button>
+  `;
+}
+function pdfHeader(doc,title){
+  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(27,31,27);
+  doc.text('Stockline', 14, 16);
+  doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(90,95,90);
+  doc.text(title, 14, 23);
+  doc.text('Generated '+new Date().toLocaleString(), 14, 29);
+  doc.setDrawColor(220,224,220); doc.line(14,33,196,33);
+  return 40;
+}
+function drawTable(doc, headers, rows, startY){
+  const colCount = headers.length; const pageWidth = 182; const colW = pageWidth/colCount;
+  let y = startY;
+  doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(47,111,94);
+  headers.forEach((h,i)=>doc.text(String(h), 14+i*colW, y));
+  y+=3; doc.setDrawColor(220,224,220); doc.line(14,y,196,y); y+=6;
+  doc.setFont('helvetica','normal'); doc.setTextColor(27,31,27);
+  rows.forEach(row=>{
+    if(y>280){ doc.addPage(); y=20; }
+    row.forEach((cell,i)=>{ const text = doc.splitTextToSize(String(cell ?? ''), colW-2); doc.text(text, 14+i*colW, y); });
+    y+=7;
+  });
+  return y;
+}
+function downloadName(prefix){ return prefix+'_'+new Date().toISOString().slice(0,10)+'.pdf'; }
+
+function openTxReportPicker(){
+  const groups = groupTransactions().sort((a,b)=>b.txNumber-a.txNumber);
+  const opts = groups.map(g=>`<option value="${g.txNumber}">#${g.txNumber} — ${locationLabel(g.fromLocationId)} → ${locationLabel(g.toLocationId)} (${g.lines.length} item${g.lines.length===1?'':'s'})</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>Transaction report</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Transaction</label>
+    <select id="rep_tx">${opts}</select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfTxReport()">Generate PDF</button></div>
+  `);
+}
+function pdfTxReport(){
+  const num = parseInt(document.getElementById('rep_tx').value,10);
+  const g = groupTransactions().find(x=>x.txNumber===num);
+  const doc = new jspdf.jsPDF();
+  let y = pdfHeader(doc, 'Transaction Report — #'+g.txNumber);
+  const meta = [
+    ['Transaction ID', '#'+g.txNumber],
+    ['Date', fmtDate(g.timestamp)],
+    ['From location', locationLabel(g.fromLocationId)],
+    ['From person', g.fromPersonId?personLabel(g.fromPersonId):'—'],
+    ['To location', locationLabel(g.toLocationId)],
+    ['To person', g.toPersonId?personLabel(g.toPersonId):'—'],
+    ['Notes', g.notes||'—'],
+    ['Transaction user', g.transactionUser||'—'],
+  ];
+  doc.setFontSize(10);
+  meta.forEach(([label,val])=>{
+    doc.setFont('helvetica','bold'); doc.setTextColor(47,111,94); doc.text(String(label), 14, y);
+    doc.setFont('helvetica','normal'); doc.setTextColor(27,31,27); doc.text(String(val), 60, y);
+    y+=7;
+  });
+  y+=5;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(27,31,27);
+  doc.text('Items in this transaction', 14, y); y+=7;
+  const rows = g.lines.map(l=>[l.catalogNumber, itemByCat(l.catalogNumber)?.description||'', l.amount, l.serialNumber||'—']);
+  y = drawTable(doc, ['Catalog #','Description','Amount','Serial'], rows, y);
+  closeModal();
+  doc.save(downloadName('transaction_'+g.txNumber));
+  toast('PDF downloaded');
+}
+function openPersonReportPicker(){
+  openModal(`
+    <div class="modal-head"><h3>Inventory by person</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Person</label>
+    <select id="rep_person">${state.people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfPersonReport()">Generate PDF</button></div>
+  `);
+}
+function pdfPersonReport(){
+  const pid = document.getElementById('rep_person').value;
+  const p = state.people.find(x=>x.id===pid);
+  const doc = new jspdf.jsPDF();
+  let y = pdfHeader(doc, 'Inventory — '+p.name);
+  doc.setFontSize(10); doc.setTextColor(90,95,90);
+  doc.text((p.idNumber?'ID '+p.idNumber+'   ':'')+(p.phone||''), 14, y); y+=8;
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[2]===pid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); return [parts[0], itemByCat(parts[0])?.description||'', state.inventory[k], locationLabel(parts[1])];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].personId===pid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, locationLabel(s.locationId)];
+  });
+  const all=[...rows,...serialRows];
+  if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Location'], all, y);
+  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Currently holding nothing', 14, y); }
+  closeModal();
+  doc.save(downloadName('inventory_person_'+p.name.replace(/\s+/g,'_')));
+  toast('PDF downloaded');
+}
+function openLocationReportPicker(){
+  openModal(`
+    <div class="modal-head"><h3>Inventory by location</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Location</label>
+    <select id="rep_location">${state.locations.map(l=>`<option value="${l.id}">${l.name}${l.isInitial?' (source)':''}</option>`).join('')}</select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfLocationReport()">Generate PDF</button></div>
+  `);
+}
+function pdfLocationReport(){
+  const lid = document.getElementById('rep_location').value;
+  const loc = state.locations.find(x=>x.id===lid);
+  const doc = new jspdf.jsPDF();
+  let y = pdfHeader(doc, 'Inventory — '+loc.name);
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]!==0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); const perId=parts[2];
+    return [parts[0], itemByCat(parts[0])?.description||'', state.inventory[k], perId!=='none'?personLabel(perId):'—'];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, s.personId?personLabel(s.personId):'—'];
+  });
+  const all=[...rows,...serialRows];
+  if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Held by'], all, y);
+  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Nothing recorded here', 14, y); }
+  closeModal();
+  doc.save(downloadName('inventory_location_'+loc.name.replace(/\s+/g,'_')));
+  toast('PDF downloaded');
+}
+function openCountFormPicker(){
+  openModal(`
+    <div class="modal-head"><h3>Inventory count form</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Location</label>
+    <select id="rep_count_location">${state.locations.map(l=>`<option value="${l.id}">${l.name}${l.isInitial?' (source)':''}</option>`).join('')}</select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfCountForm()">Generate PDF</button></div>
+  `);
+}
+function pdfCountForm(){
+  const lid = document.getElementById('rep_count_location').value;
+  const loc = state.locations.find(x=>x.id===lid);
+  const doc = new jspdf.jsPDF();
+  let y = pdfHeader(doc, 'Inventory Count Form — '+loc.name);
+  doc.setFontSize(9); doc.setTextColor(120,124,120); doc.setFont('helvetica','italic');
+  doc.text('Print and use to record a physical count against expected quantities.', 14, y); y+=9;
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); const perId=parts[2];
+    return [parts[0], itemByCat(parts[0])?.description||'', perId!=='none'?personLabel(perId):'—', state.inventory[k], '_______', '_______'];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', s.personId?personLabel(s.personId):'—', sn, '', ''];
+  });
+  const all=[...rows,...serialRows];
+  if(all.length) y=drawTable(doc, ['Catalog #','Description','Held by','Expected','Counted','Notes'], all, y);
+  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Nothing expected at this location', 14, y); }
+  closeModal();
+  doc.save(downloadName('count_form_'+loc.name.replace(/\s+/g,'_')));
+  toast('PDF downloaded');
+}
+
+/* ============ MASTER RENDER ============ */
+function updateFabVisibility(){
+  const fab = document.getElementById('fabBtn');
+  if(!fab) return;
+  if(!currentAuthUser || isViewer()){ fab.style.display='none'; return; }
+  if(currentTab==='move'){ fab.style.display = canDoTransactions() ? 'flex' : 'none'; return; }
+  if(currentTab==='setup'){
+    if(isAdmin()){ fab.style.display='flex'; return; }
+    if(isEditor()){ fab.style.display = (setupSub==='people') ? 'flex' : 'none'; return; }
+  }
+  fab.style.display='none';
+}
+function renderAll(){
+  renderUserChip();
+  renderOverview();
+  renderSetup();
+  renderInventory();
+  renderMove();
+  renderReports();
+  updateFabVisibility();
+}
+rebuildInventory();
+renderDbSetup();
+</script>
+</body>
+</html>
