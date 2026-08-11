@@ -283,6 +283,15 @@ function renderUserChip(){
 /* ============ CONNECT TO DATABASE FLOW ============ */
 function renderDbSetup(){
   const body = document.getElementById('dbSetupBody');
+  if(!dbSetupMode && DB_URL){
+    body.innerHTML = `
+      <div class="empty" style="padding:6px 0 16px;">Sign in with Google to continue</div>
+      <div id="gsiContainer" style="display:flex;justify-content:center;"></div>
+      <button class="btn ghost sm" style="margin:18px auto 0;display:block;" onclick="forgetDb()">Use a different database</button>
+    `;
+    renderGoogleSignIn('gsiContainer', handleGoogleToken);
+    return;
+  }
   if(!dbSetupMode){
     body.innerHTML = `
       <button class="btn" style="margin-bottom:10px;" onclick="dbSetupMode='create';renderDbSetup()">Create a new database</button>
@@ -330,6 +339,7 @@ function confirmDbUrl(){
   const url = document.getElementById('db_url_input').value.trim();
   if(!url) return toast('Paste the Web App URL first');
   DB_URL = url;
+  try{ localStorage.setItem('stockline_db_url', DB_URL); }catch(e){}
   document.getElementById('dbSetupBody').innerHTML = `
     <div class="empty" style="padding:6px 0 16px;">Sign in with Google to continue</div>
     <div id="gsiContainer" style="display:flex;justify-content:center;"></div>
@@ -419,14 +429,20 @@ function loginAs(id){
   document.getElementById('app').style.display='flex';
   showTab('overview');
 }
+function forgetDb(){
+  DB_URL='';
+  try{ localStorage.removeItem('stockline_db_url'); }catch(e){}
+  dbSetupMode=null;
+  renderDbSetup();
+}
 function logout(){
   currentAuthUser = null;
   document.getElementById('app').style.display='none';
   if(connectedToRealDb){
-    connectedToRealDb = false; DB_URL=''; googleIdToken=null; dbSetupMode=null;
+    connectedToRealDb = false; googleIdToken=null; dbSetupMode=null;
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('dbSetupScreen').style.display='block';
-    renderDbSetup();
+    renderDbSetup(); // DB_URL is kept, so this goes straight back to Sign in with Google
   } else {
     document.getElementById('loginScreen').style.display='flex';
     renderLoginScreen();
@@ -1549,6 +1565,7 @@ function renderAll(){
   renderReports();
   updateFabVisibility();
 }
+try{ DB_URL = localStorage.getItem('stockline_db_url') || ''; }catch(e){ DB_URL=''; }
 rebuildInventory();
 renderDbSetup();
 </script>
