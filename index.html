@@ -78,6 +78,10 @@
   .report-btn .arrow{color:var(--accent);font-size:18px;}
   .row-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;}
   #modeIndicator{cursor:pointer;}
+  #busyOverlay{display:none;position:fixed;inset:0;background:rgba(20,22,18,.35);z-index:500;align-items:center;justify-content:center;}
+  #busyOverlay .box{background:var(--surface);padding:16px 22px;border-radius:14px;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+  #busyOverlay .spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
   .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);margin-bottom:14px;-webkit-overflow-scrolling:touch;}
   table.dtable{width:100%;border-collapse:collapse;font-size:12.5px;}
   table.dtable th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--chip-bg);}
@@ -145,6 +149,7 @@
 </div>
 <div class="modal-backdrop" id="modalBackdrop"><div class="modal" id="modalBody"></div></div>
 <div class="toast" id="toast"></div>
+<div id="busyOverlay"><div class="box"><div class="spinner"></div>Working…</div></div>
 
 <script>
 /* ============ CONSTANTS & STATE ============ */
@@ -354,11 +359,21 @@ function renderGoogleSignIn(containerId, onToken){
   google.accounts.id.initialize({ client_id: OAUTH_CLIENT_ID, callback: (resp)=>onToken(resp.credential) });
   google.accounts.id.renderButton(document.getElementById(containerId), { theme:'outline', size:'large', width:280 });
 }
+let backendBusy = false;
 async function callBackend(action, payload){
-  const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action, idToken: googleIdToken, payload: payload||{} }) });
-  const data = await res.json();
-  if(!data.ok) throw new Error(data.error || 'Request failed');
-  return data.result;
+  if(backendBusy) throw new Error('Please wait for the previous action to finish');
+  backendBusy = true;
+  const overlay = document.getElementById('busyOverlay');
+  if(overlay) overlay.style.display='flex';
+  try {
+    const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action, idToken: googleIdToken, payload: payload||{} }) });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'Request failed');
+    return data.result;
+  } finally {
+    backendBusy = false;
+    if(overlay) overlay.style.display='none';
+  }
 }
 async function handleGoogleToken(idToken){
   googleIdToken = idToken;
