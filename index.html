@@ -1079,19 +1079,38 @@ function renderInventory(){
       }
       if(!rowsArr.length) return '';
       const table = `<div class="table-wrap-flat"><table class="dtable"><thead><tr>${headers}</tr></thead><tbody>${rowsArr.join('')}</tbody></table></div>`;
-      return `<details class="inv-group" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${it.description} <span class="hint">${it.catalogNumber}</span></span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
+      const searchAttr = (it.catalogNumber+' '+it.description).toLowerCase();
+      return `<details class="inv-group" data-search="${searchAttr}" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${it.description} <span class="hint">${it.catalogNumber}</span></span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
     }).join('') || '<div class="empty">Nothing currently in stock.</div>';
   }
+  const itemSearchBar = invSub==='items' ? `
+    <input id="inv_item_search_input" type="text" placeholder="Search by catalog # or description…" oninput="filterInvItems(this.value)" style="margin-bottom:12px;">
+    <div id="inv_item_no_match" class="empty" style="display:none;">No items match your search.</div>
+  ` : '';
   document.getElementById('tab-inventory').innerHTML = `
     <div class="btn-row" style="margin-bottom:14px;">
       <button class="btn ${invSub==='locations'?'':'secondary'} sm" style="flex:1;" onclick="invSub='locations';renderAll()">By Location</button>
       <button class="btn ${invSub==='people'?'':'secondary'} sm" style="flex:1;" onclick="invSub='people';renderAll()">By Person</button>
       <button class="btn ${invSub==='items'?'':'secondary'} sm" style="flex:1;" onclick="invSub='items';renderAll()">By Item</button>
     </div>
+    ${itemSearchBar}
     <div class="card" style="padding:2px 16px;">${body}</div>
     ${renderSelectionBar()}
   `;
 }
+function filterInvItems(searchVal){
+  const term = searchVal.trim().toLowerCase();
+  const groups = document.querySelectorAll('#tab-inventory .inv-group[data-search]');
+  let anyVisible = false;
+  groups.forEach(el=>{
+    const match = !term || el.dataset.search.includes(term);
+    el.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const noMatch = document.getElementById('inv_item_no_match');
+  if(noMatch) noMatch.style.display = (term && !anyVisible) ? 'block' : 'none';
+}
+
 
 /* ============ RENDER: MOVE ============ */
 function groupTransactions(){
@@ -1217,14 +1236,25 @@ function renderTxRowHtml(r,i){
   }
   return `<tr>
     <td style="min-width:160px;">
+      ${fromChosen && eligibleItems.length ? `<input type="text" placeholder="Search items…" oninput="filterTxItemOptions(${i}, this.value)" style="margin-bottom:6px;">` : ''}
       <select id="tx_row_cat_${i}" onchange="txRowItemChanged(${i})" ${!fromChosen?'disabled':''}>
         <option value="">${fromChosen? 'Select item…' : 'Choose From location first'}</option>
-        ${eligibleItems.map(x=>`<option value="${x.catalogNumber}" ${r.catalogNumber===x.catalogNumber?'selected':''}>${x.catalogNumber} — ${x.description}</option>`).join('')}
+        ${eligibleItems.map(x=>`<option value="${x.catalogNumber}" data-search="${(x.catalogNumber+' '+x.description).toLowerCase()}" ${r.catalogNumber===x.catalogNumber?'selected':''}>${x.catalogNumber} — ${x.description}</option>`).join('')}
       </select>
     </td>
     <td>${detail}</td>
     <td style="text-align:right;"><button type="button" onclick="removeTxRow(${i})" style="background:none;border:none;color:var(--danger);font-size:18px;">&times;</button></td>
   </tr>`;
+}
+function filterTxItemOptions(i, searchVal){
+  const term = searchVal.trim().toLowerCase();
+  const select = document.getElementById('tx_row_cat_'+i);
+  if(!select) return;
+  Array.from(select.options).forEach(opt=>{
+    if(!opt.value){ opt.style.display=''; return; } // always keep the placeholder option visible
+    const match = !term || (opt.dataset.search||'').includes(term);
+    opt.style.display = match ? '' : 'none';
+  });
 }
 function captureTxFields(){
   const g=id=>document.getElementById(id);
