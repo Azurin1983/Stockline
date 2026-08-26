@@ -638,7 +638,8 @@ function renderSetup(){
   } else if(setupSub==='items'){
     const rows = state.items.map(it=>{
       const actions = canManageItem() ? `<button class="btn ghost sm" onclick="openEditItem('${it.catalogNumber}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteItem('${it.catalogNumber}')">Delete</button>` : '—';
-      return `<tr onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${it.catalogNumber}</td><td>${it.description}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+      const searchAttr = (it.catalogNumber+' '+it.description).toLowerCase();
+      return `<tr data-search="${searchAttr}" onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${it.catalogNumber}</td><td>${it.description}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Catalog #</th><th>Description</th><th>Serialized</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   } else {
@@ -650,6 +651,10 @@ function renderSetup(){
   }
   const usersTabBtn = isAdmin() ? `<button class="btn ${setupSub==='users'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='users';renderAll()">Users</button>` : '';
   const hint = isViewer() ? '' : '<span class="hint">tap + to add · tap a row for photo</span>';
+  const itemSearchBar = setupSub==='items' ? `
+    <input id="setup_item_search_input" type="text" placeholder="Search by catalog # or description…" oninput="filterSetupItems(this.value)" style="margin-bottom:12px;">
+    <div id="setup_item_no_match" class="empty" style="display:none;">No items match your search.</div>
+  ` : '';
   document.getElementById('tab-setup').innerHTML = `
     <h2 class="section-title">Setup ${hint}</h2>
     <div class="btn-row" style="margin-bottom:14px;">
@@ -658,8 +663,21 @@ function renderSetup(){
       <button class="btn ${setupSub==='items'?'':'secondary'} sm" style="flex:1;" onclick="setupSub='items';renderAll()">Items</button>
       ${usersTabBtn}
     </div>
+    ${itemSearchBar}
     ${tableHtml || '<div class="empty">Nothing here yet.</div>'}
   `;
+}
+function filterSetupItems(searchVal){
+  const term = searchVal.trim().toLowerCase();
+  const rows = document.querySelectorAll('#tab-setup tbody tr[data-search]');
+  let anyVisible = false;
+  rows.forEach(tr=>{
+    const match = !term || tr.dataset.search.includes(term);
+    tr.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const noMatch = document.getElementById('setup_item_no_match');
+  if(noMatch) noMatch.style.display = (term && !anyVisible) ? 'block' : 'none';
 }
 /* ---- usage checks (an entity is only deletable if it has never appeared in a transaction) ---- */
 function locationInUse(id){ return state.transactions.some(t=>t.fromLocationId===id || t.toLocationId===id); }
