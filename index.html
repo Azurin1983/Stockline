@@ -420,6 +420,21 @@ async function syncFromBackend(){
     toast('Sync failed: '+err.message);
   }
 }
+// pendingImageData is a fresh base64 data URL only when the user just picked a new photo
+// in this form session — in that case upload it and use the resulting Drive file ID.
+// Otherwise (unchanged existing photo, or none) pass it through as-is.
+async function resolveImageForUpload(){
+  if(pendingImageData && pendingImageData.startsWith('data:')){
+    try {
+      const result = await callBackend('uploadImage', {dataUrl: pendingImageData});
+      return result.fileId;
+    } catch(err){
+      toast('Image upload failed: '+err.message);
+      return null;
+    }
+  }
+  return pendingImageData;
+}
 function skipToDemoMode(){
   connectedToRealDb = false;
   document.getElementById('dbSetupScreen').style.display='none';
@@ -699,11 +714,24 @@ function canManageTransactions(){ return isAdmin(); } // edit/delete/reset histo
 
 /* ---- images: locations, people, and items can each optionally have a photo, editable only from Setup ---- */
 let pendingImageData = null;
+// Demo mode stores raw base64 data URLs; real mode stores a bare Drive file ID —
+// this makes both work transparently anywhere an <img src> is needed.
+function imageSrc(value){
+  if(!value) return null;
+  if(value.startsWith('data:') || value.startsWith('http')) return value;
+  return DB_URL + (DB_URL.includes('?') ? '&' : '?') + 'fileId=' + encodeURIComponent(value);
+}
 function imageFieldHtml(current, previewId){
+  const src = imageSrc(current);
   return `
     <label>Photo (optional)</label>
-    <input type="file" accept="image/*" onchange="handleImagePreview(event,'${previewId}')">
-    <div id="${previewId}" style="margin-top:8px;">${current?`<img src="${current}" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);"><br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`:''}</div>
+    <input type="file" accept="image/*" capture="environment" id="${previewId}_camera" style="display:none;" onchange="handleImagePreview(event,'${previewId}')">
+    <input type="file" accept="image/*" id="${previewId}_file" style="display:none;" onchange="handleImagePreview(event,'${previewId}')">
+    <div class="btn-row">
+      <button type="button" class="btn secondary sm" style="flex:1;" onclick="document.getElementById('${previewId}_camera').click()">📷 Take photo</button>
+      <button type="button" class="btn secondary sm" style="flex:1;" onclick="document.getElementById('${previewId}_file').click()">🖼 Choose file</button>
+    </div>
+    <div id="${previewId}" style="margin-top:8px;">${src?`<img src="${src}" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);"><br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`:''}</div>
   `;
 }
 function handleImagePreview(evt, previewId){
@@ -739,8 +767,9 @@ function imageThumbHtml(entityType, id){
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); image=l&&l.image; }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); image=p&&p.image; }
   else { const it=itemByCat(id); image=it&&it.image; }
-  return image
-    ? `<img src="${image}" style="width:36px;height:36px;object-fit:cover;border-radius:8px;">`
+  const src = imageSrc(image);
+  return src
+    ? `<img src="${src}" style="width:36px;height:36px;object-fit:cover;border-radius:8px;">`
     : `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
 }
 function openImageViewer(entityType, id){
@@ -748,10 +777,11 @@ function openImageViewer(entityType, id){
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); if(!l) return; name=l.name; image=l.image; editCall=`openEditLocation('${id}')`; canEdit=canManageLocation(); }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); if(!p) return; name=p.name; image=p.image; editCall=`openEditPerson('${id}')`; canEdit=canManagePerson(p); }
   else { const it=itemByCat(id); if(!it) return; name=it.description; image=it.image; editCall=`openEditItem('${id}')`; canEdit=canManageItem(); }
+  const src = imageSrc(image);
   openModal(`
     <div class="modal-head"><h3>${name}</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    ${image? `<img src="${image}" style="width:100%;border-radius:12px;border:1px solid var(--line);">` : '<div class="empty">No photo added yet.</div>'}
-    ${canEdit ? `<button class="btn ghost sm" style="margin-top:14px;" onclick="closeModal();${editCall}">${image?'Change photo':'Add photo'}</button>` : ''}
+    ${src? `<img src="${src}" style="width:100%;border-radius:12px;border:1px solid var(--line);">` : '<div class="empty">No photo added yet.</div>'}
+    ${canEdit ? `<button class="btn ghost sm" style="margin-top:14px;" onclick="closeModal();${editCall}">${src?'Change photo':'Add photo'}</button>` : ''}
   `);
 }
 /* ---- edit / delete: locations ---- */
@@ -772,7 +802,8 @@ async function saveEditLocation(id){
   const name = document.getElementById('f_edit_name').value.trim();
   if(!name) return toast('Name is required');
   if(connectedToRealDb){
-    try { await callBackend('saveLocation', {id, name, image:pendingImageData}); }
+    const imageForSave = await resolveImageForUpload();
+    try { await callBackend('saveLocation', {id, name, image:imageForSave}); }
     catch(err){ return toast(err.message); }
     pendingImageData=null; await syncFromBackend(); closeModal(); toast('Location updated'); renderAll(); return;
   }
@@ -819,7 +850,8 @@ async function saveEditPerson(id){
   const idNumber = document.getElementById('f_edit_idnum').value.trim();
   const phone = document.getElementById('f_edit_phone').value.trim();
   if(connectedToRealDb){
-    try { await callBackend('savePerson', {id, name, idNumber, phone, image:pendingImageData}); }
+    const imageForSave = await resolveImageForUpload();
+    try { await callBackend('savePerson', {id, name, idNumber, phone, image:imageForSave}); }
     catch(err){ return toast(err.message); }
     pendingImageData=null; await syncFromBackend(); closeModal(); toast('Person updated'); renderAll(); return;
   }
@@ -869,7 +901,8 @@ async function saveEditItem(oldCat){
   if(newCat !== oldCat && itemByCat(newCat)) return toast('That catalog number already exists');
   const wasInUse = itemInUse(oldCat);
   if(connectedToRealDb){
-    const payload = {catalogNumber:newCat, originalCatalogNumber:oldCat, description:desc, image:pendingImageData};
+    const imageForSave = await resolveImageForUpload();
+    const payload = {catalogNumber:newCat, originalCatalogNumber:oldCat, description:desc, image:imageForSave};
     if(!wasInUse) payload.hasSerial = hasSerial;
     try { await callBackend('saveItem', payload); }
     catch(err){ return toast(err.message); }
@@ -919,7 +952,8 @@ async function saveLocationOrPerson(){
   if(setupSub==='locations'){
     if(!canCreateLocationsOrItems()) return toast('You do not have permission to add locations');
     if(connectedToRealDb){
-      try { await callBackend('saveLocation', {name, isInitial:false, image:pendingImageData}); }
+      const imageForSave = await resolveImageForUpload();
+      try { await callBackend('saveLocation', {name, isInitial:false, image:imageForSave}); }
       catch(err){ return toast(err.message); }
       pendingImageData=null; await syncFromBackend(); closeModal(); toast('Added'); renderAll(); return;
     }
@@ -929,7 +963,8 @@ async function saveLocationOrPerson(){
     const idNumber=document.getElementById('f_dir_idnum').value.trim();
     const phone=document.getElementById('f_dir_phone').value.trim();
     if(connectedToRealDb){
-      try { await callBackend('savePerson', {name, idNumber, phone, image:pendingImageData}); }
+      const imageForSave = await resolveImageForUpload();
+      try { await callBackend('savePerson', {name, idNumber, phone, image:imageForSave}); }
       catch(err){ return toast(err.message); }
       pendingImageData=null; await syncFromBackend(); closeModal(); toast('Added'); renderAll(); return;
     }
@@ -958,7 +993,8 @@ async function saveItem(){
   if(!cat || !desc) return toast('Catalog number and description are required');
   if(itemByCat(cat)) return toast('That catalog number already exists');
   if(connectedToRealDb){
-    try { await callBackend('saveItem', {catalogNumber:cat, description:desc, hasSerial, image:pendingImageData}); }
+    const imageForSave = await resolveImageForUpload();
+    try { await callBackend('saveItem', {catalogNumber:cat, description:desc, hasSerial, image:imageForSave}); }
     catch(err){ return toast(err.message); }
     pendingImageData=null; await syncFromBackend(); closeModal(); toast('Item added'); renderAll(); return;
   }
