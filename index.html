@@ -563,7 +563,11 @@ async function deleteUser(id){
 }
 
 /* ============ MODAL ============ */
-function openModal(html){ document.getElementById('modalBody').innerHTML = html; document.getElementById('modalBackdrop').classList.add('open'); }
+function openModal(html){
+  document.getElementById('modalBody').innerHTML = html;
+  document.getElementById('modalBackdrop').classList.add('open');
+  hydrateDriveImages(document.getElementById('modalBody'));
+}
 function closeModal(){
   document.getElementById('modalBackdrop').classList.remove('open');
   if(editingTxNumber !== null){
@@ -681,6 +685,7 @@ function renderSetup(){
     ${itemSearchBar}
     ${tableHtml || '<div class="empty">Nothing here yet.</div>'}
   `;
+  hydrateDriveImages(document.getElementById('tab-setup'));
 }
 function filterSetupItems(searchVal){
   const term = searchVal.trim().toLowerCase();
@@ -716,13 +721,38 @@ function canManageTransactions(){ return isAdmin(); } // edit/delete/reset histo
 let pendingImageData = null;
 // Demo mode stores raw base64 data URLs; real mode stores a bare Drive file ID —
 // this makes both work transparently anywhere an <img src> is needed.
-function imageSrc(value){
-  if(!value) return null;
-  if(value.startsWith('data:') || value.startsWith('http')) return value;
-  return DB_URL + (DB_URL.includes('?') ? '&' : '?') + 'fileId=' + encodeURIComponent(value);
+// Demo mode stores raw base64 data URLs directly — those render immediately.
+// Real mode stores a bare Drive file ID — those need an async round-trip through
+// the same JSON API used everywhere else, so they render as a placeholder first
+// and get swapped in once loaded (see hydrateDriveImages).
+const imageCache = new Map(); // fileId -> resolved data URL
+const BLANK_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+function imageTag(value, style){
+  if(!value) return '';
+  if(value.startsWith('data:') || value.startsWith('http')){
+    return `<img src="${value}" style="${style}">`;
+  }
+  const cached = imageCache.get(value);
+  if(cached) return `<img src="${cached}" style="${style}">`;
+  return `<img class="lazy-drive-image" data-file-id="${value}" src="${BLANK_PIXEL}" style="${style}">`;
+}
+async function fetchImageDataUrl(fileId){
+  if(imageCache.has(fileId)) return imageCache.get(fileId);
+  const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action:'getImage', idToken: googleIdToken, payload:{fileId} }) });
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error || 'Failed to load image');
+  imageCache.set(fileId, data.result.dataUrl);
+  return data.result.dataUrl;
+}
+function hydrateDriveImages(container){
+  if(!container || !connectedToRealDb) return;
+  container.querySelectorAll('img.lazy-drive-image[data-file-id]').forEach(img=>{
+    const fileId = img.dataset.fileId;
+    fetchImageDataUrl(fileId).then(url=>{ img.src = url; img.classList.remove('lazy-drive-image'); }).catch(()=>{});
+  });
 }
 function imageFieldHtml(current, previewId){
-  const src = imageSrc(current);
+  const tag = imageTag(current, 'max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);');
   return `
     <label>Photo (optional)</label>
     <input type="file" accept="image/*" capture="environment" id="${previewId}_camera" style="display:none;" onchange="handleImagePreview(event,'${previewId}')">
@@ -731,7 +761,7 @@ function imageFieldHtml(current, previewId){
       <button type="button" class="btn secondary sm" style="flex:1;" onclick="document.getElementById('${previewId}_camera').click()">📷 Take photo</button>
       <button type="button" class="btn secondary sm" style="flex:1;" onclick="document.getElementById('${previewId}_file').click()">🖼 Choose file</button>
     </div>
-    <div id="${previewId}" style="margin-top:8px;">${src?`<img src="${src}" style="max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);"><br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`:''}</div>
+    <div id="${previewId}" style="margin-top:8px;">${tag?`${tag}<br><button type="button" class="btn ghost sm" style="margin-top:6px;" onclick="clearPendingImage('${previewId}')">Remove photo</button>`:''}</div>
   `;
 }
 function handleImagePreview(evt, previewId){
@@ -767,21 +797,19 @@ function imageThumbHtml(entityType, id){
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); image=l&&l.image; }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); image=p&&p.image; }
   else { const it=itemByCat(id); image=it&&it.image; }
-  const src = imageSrc(image);
-  return src
-    ? `<img src="${src}" style="width:36px;height:36px;object-fit:cover;border-radius:8px;">`
-    : `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
+  const tag = imageTag(image, 'width:36px;height:36px;object-fit:cover;border-radius:8px;');
+  return tag || `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
 }
 function openImageViewer(entityType, id){
   let name, image, editCall, canEdit;
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); if(!l) return; name=l.name; image=l.image; editCall=`openEditLocation('${id}')`; canEdit=canManageLocation(); }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); if(!p) return; name=p.name; image=p.image; editCall=`openEditPerson('${id}')`; canEdit=canManagePerson(p); }
   else { const it=itemByCat(id); if(!it) return; name=it.description; image=it.image; editCall=`openEditItem('${id}')`; canEdit=canManageItem(); }
-  const src = imageSrc(image);
+  const tag = imageTag(image, 'width:100%;border-radius:12px;border:1px solid var(--line);');
   openModal(`
     <div class="modal-head"><h3>${name}</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    ${src? `<img src="${src}" style="width:100%;border-radius:12px;border:1px solid var(--line);">` : '<div class="empty">No photo added yet.</div>'}
-    ${canEdit ? `<button class="btn ghost sm" style="margin-top:14px;" onclick="closeModal();${editCall}">${src?'Change photo':'Add photo'}</button>` : ''}
+    ${tag || '<div class="empty">No photo added yet.</div>'}
+    ${canEdit ? `<button class="btn ghost sm" style="margin-top:14px;" onclick="closeModal();${editCall}">${image?'Change photo':'Add photo'}</button>` : ''}
   `);
 }
 /* ---- edit / delete: locations ---- */
