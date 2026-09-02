@@ -736,19 +736,30 @@ function imageTag(value, style){
   if(cached) return `<img src="${cached}" style="${style}">`;
   return `<img class="lazy-drive-image" data-file-id="${value}" src="${BLANK_PIXEL}" style="${style}">`;
 }
-async function fetchImageDataUrl(fileId){
-  if(imageCache.has(fileId)) return imageCache.get(fileId);
-  const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action:'getImage', idToken: googleIdToken, payload:{fileId} }) });
-  const data = await res.json();
-  if(!data.ok) throw new Error(data.error || 'Failed to load image');
-  imageCache.set(fileId, data.result.dataUrl);
-  return data.result.dataUrl;
+async function fetchImagesBatch(fileIds){
+  const uncached = [...new Set(fileIds)].filter(id=>!imageCache.has(id));
+  if(!uncached.length) return;
+  try {
+    const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action:'getImages', idToken: googleIdToken, payload:{fileIds:uncached} }) });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error || 'Failed to load images');
+    Object.keys(data.result.images).forEach(fileId=>{
+      const url = data.result.images[fileId];
+      if(url) imageCache.set(fileId, url);
+    });
+  } catch(err){
+    console.error('Image batch load failed', err);
+  }
 }
 function hydrateDriveImages(container){
   if(!container || !connectedToRealDb) return;
-  container.querySelectorAll('img.lazy-drive-image[data-file-id]').forEach(img=>{
-    const fileId = img.dataset.fileId;
-    fetchImageDataUrl(fileId).then(url=>{ img.src = url; img.classList.remove('lazy-drive-image'); }).catch(()=>{});
+  const imgs = Array.from(container.querySelectorAll('img.lazy-drive-image[data-file-id]'));
+  if(!imgs.length) return;
+  fetchImagesBatch(imgs.map(img=>img.dataset.fileId)).then(()=>{
+    imgs.forEach(img=>{
+      const url = imageCache.get(img.dataset.fileId);
+      if(url){ img.src = url; img.classList.remove('lazy-drive-image'); }
+    });
   });
 }
 function imageFieldHtml(current, previewId){
