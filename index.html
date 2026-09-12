@@ -401,10 +401,12 @@ async function handleGoogleToken(idToken){
 function applyRemoteData(data){
   state.locations = data.locations.map(l=>({...l, isInitial: String(l.isInitial)==='true', image:l.image||null}));
   state.people = data.people.map(p=>({...p, image:p.image||null}));
-  state.items = data.items.map(it=>({...it, hasSerial: String(it.hasSerial)==='true', image:it.image||null}));
+  state.items = data.items.map(it=>({...it, catalogNumber:String(it.catalogNumber), hasSerial: String(it.hasSerial)==='true', image:it.image||null}));
   state.transactions = data.transactions.map(t=>({...t,
+    catalogNumber:String(t.catalogNumber),
     amount:Number(t.amount), timestamp:Number(t.timestamp), txNumber:Number(t.txNumber),
-    fromPersonId:t.fromPersonId||null, toPersonId:t.toPersonId||null, serialNumber:t.serialNumber||null
+    fromPersonId:t.fromPersonId||null, toPersonId:t.toPersonId||null,
+    serialNumber:t.serialNumber? String(t.serialNumber) : null
   }));
   state.users = data.users;
   rebuildInventory();
