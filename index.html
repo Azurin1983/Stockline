@@ -154,6 +154,10 @@
 <script>
 /* ============ CONSTANTS & STATE ============ */
 const INITIAL_LOC_ID = 'loc_init';
+function isSourceLocation(id){
+  const l = state.locations.find(x=>x.id===id);
+  return !!(l && l.isInitial);
+}
 let idc = 100;
 let txCounter = 1005;
 const newId = (p) => p + '_' + (idc++);
@@ -243,7 +247,7 @@ function rebuildInventory(){
 }
 function availableItemsForSource(locId, perId){
   if(!locId) return [];
-  if(locId === INITIAL_LOC_ID) return state.items;
+  if(isSourceLocation(locId)) return state.items;
   return state.items.filter(it=>{
     if(it.hasSerial){
       return Object.keys(state.serialState).some(sn=>{
@@ -843,9 +847,11 @@ function openEditLocation(id){
   const l = state.locations.find(x=>x.id===id);
   if(!l) return;
   pendingImageData = l.image || null;
+  const locked = l.id===INITIAL_LOC_ID;
   openModal(`
     <div class="modal-head"><h3>Edit location</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Name</label><input id="f_edit_name" value="${escapeHtml(l.name)}">
+    <div class="checkbox-row"><input type="checkbox" id="f_edit_isinitial" ${l.isInitial?'checked':''} ${locked?'disabled':''} style="width:auto;"><label style="margin:0;">Source location (allows negative stock — use for a vendor/supplier)${locked?' <span class="hint">(always on for Initial Stock)</span>':''}</label></div>
     ${imageFieldHtml(l.image,'f_edit_image_preview')}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditLocation('${id}')">Save changes</button></div>
   `);
@@ -854,14 +860,16 @@ async function saveEditLocation(id){
   if(!canManageLocation()) return toast('You do not have permission to edit locations');
   const name = document.getElementById('f_edit_name').value.trim();
   if(!name) return toast('Name is required');
+  const isInitial = id===INITIAL_LOC_ID ? true : document.getElementById('f_edit_isinitial').checked;
   if(connectedToRealDb){
     const imageForSave = await resolveImageForUpload();
-    try { await callBackend('saveLocation', {id, name, image:imageForSave}); }
+    try { await callBackend('saveLocation', {id, name, isInitial, image:imageForSave}); }
     catch(err){ return toast(err.message); }
     pendingImageData=null; await syncFromBackend(); closeModal(); toast('Location updated'); renderAll(); return;
   }
   const l = state.locations.find(x=>x.id===id);
   l.name = name;
+  l.isInitial = isInitial;
   l.image = pendingImageData;
   pendingImageData = null;
   closeModal(); toast('Location updated'); renderAll();
@@ -870,7 +878,7 @@ async function deleteLocation(id){
   if(!canManageLocation()) return toast('You do not have permission to delete locations');
   const l = state.locations.find(x=>x.id===id);
   if(!l) return;
-  if(l.isInitial) return toast('Initial Stock cannot be deleted');
+  if(l.id===INITIAL_LOC_ID) return toast('Initial Stock cannot be deleted');
   if(connectedToRealDb){
     try { await callBackend('deleteLocation', {id}); }
     catch(err){ return toast(err.message); }
@@ -990,10 +998,12 @@ function openLocationOrPersonForm(){
   const extra = setupSub==='people' ? `
     <label>ID number</label><input id="f_dir_idnum" class="mono-input" placeholder="e.g. 302456789">
     <label>Phone number</label><input id="f_dir_phone" placeholder="e.g. 050-123-4567">
-  ` : '';
+  ` : `
+    <div class="checkbox-row"><input type="checkbox" id="f_dir_isinitial" style="width:auto;"><label style="margin:0;">Source location (allows negative stock — use for a vendor/supplier)</label></div>
+  `;
   openModal(`
     <div class="modal-head"><h3>New ${setupSub==='locations'?'location':'person'}</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    <label>Name</label><input id="f_dir_name" placeholder="${setupSub==='locations'?'e.g. Site B Storage':'e.g. Full name'}">
+    <label>Name</label><input id="f_dir_name" placeholder="${setupSub==='locations'?'e.g. Site B Storage or Vendor Name':'e.g. Full name'}">
     ${extra}
     ${imageFieldHtml(null,'f_dir_image_preview')}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveLocationOrPerson()">Save</button></div>
@@ -1004,13 +1014,14 @@ async function saveLocationOrPerson(){
   if(!name) return toast('Name is required');
   if(setupSub==='locations'){
     if(!canCreateLocationsOrItems()) return toast('You do not have permission to add locations');
+    const isInitial = document.getElementById('f_dir_isinitial').checked;
     if(connectedToRealDb){
       const imageForSave = await resolveImageForUpload();
-      try { await callBackend('saveLocation', {name, isInitial:false, image:imageForSave}); }
+      try { await callBackend('saveLocation', {name, isInitial, image:imageForSave}); }
       catch(err){ return toast(err.message); }
       pendingImageData=null; await syncFromBackend(); closeModal(); toast('Added'); renderAll(); return;
     }
-    state.locations.push({id:newId('loc'), name, isInitial:false, image:pendingImageData, createdBy:currentAuthUser.id});
+    state.locations.push({id:newId('loc'), name, isInitial, image:pendingImageData, createdBy:currentAuthUser.id});
   } else {
     if(!canCreatePeople()) return toast('You do not have permission to add people');
     const idNumber=document.getElementById('f_dir_idnum').value.trim();
@@ -1169,7 +1180,7 @@ function renderInventory(){
       const rowsArr=[]; let headers; let unitCount=0;
       if(it.hasSerial){
         headers = '<th></th><th>Serial</th><th>Held by</th><th>Location</th>';
-        Object.keys(state.serialState).filter(sn=>state.serialState[sn].catalogNumber===it.catalogNumber && state.serialState[sn].locationId!==INITIAL_LOC_ID).forEach(sn=>{
+        Object.keys(state.serialState).filter(sn=>state.serialState[sn].catalogNumber===it.catalogNumber && !isSourceLocation(state.serialState[sn].locationId)).forEach(sn=>{
           const s=state.serialState[sn];
           const payload = {type:'serial', catalogNumber:it.catalogNumber, locationId:s.locationId, personId:s.personId||null, serialNumber:sn};
           rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td class="mono">${sn}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td>${locationLabel(s.locationId)}</td></tr>`);
@@ -1177,7 +1188,7 @@ function renderInventory(){
         });
       } else {
         headers = '<th></th><th>Held by</th><th>Location</th><th>Qty</th>';
-        Object.keys(state.inventory).filter(k=>k.startsWith(it.catalogNumber+'__') && k.split('__')[1]!==INITIAL_LOC_ID && state.inventory[k]>0).forEach(k=>{
+        Object.keys(state.inventory).filter(k=>k.startsWith(it.catalogNumber+'__') && !isSourceLocation(k.split('__')[1]) && state.inventory[k]>0).forEach(k=>{
           const parts=k.split('__'); const locId=parts[1], perId=parts[2];
           const payload = {type:'qty', catalogNumber:it.catalogNumber, locationId:locId, personId: perId!=='none'?perId:null, amount: state.inventory[k]};
           rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td>${perId!=='none'?personLabel(perId):'—'}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`);
@@ -1255,7 +1266,7 @@ function renderTxModal(){
   const personOptions = (list, selId)=> list.map(p=>`<option value="${p.id}" ${selId===p.id?'selected':''}>${p.name}</option>`).join('');
 
   const fromChosen = !!txDraft.fromLocationId;
-  const fromIsInitial = txDraft.fromLocationId === INITIAL_LOC_ID;
+  const fromIsInitial = isSourceLocation(txDraft.fromLocationId);
   const eligibleFromPeople = (fromChosen && !fromIsInitial) ? peopleWithStockAtLocation(txDraft.fromLocationId) : [];
   const readyForRest = fromChosen && (fromIsInitial || !!txDraft.fromPersonId);
 
@@ -1284,8 +1295,8 @@ function renderTxModal(){
       <div class="divider-label">To</div>
       <label>To location</label>
       <select id="tx_tloc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.toLocationId)}</select>
-      <label>To person ${txDraft.toLocationId===INITIAL_LOC_ID ? '(optional — returning to source)' : '(required)'}</label>
-      <select id="tx_tper" onchange="txHeadChanged()">${txDraft.toLocationId===INITIAL_LOC_ID?'<option value="">— none —</option>':'<option value="">Select…</option>'}${personOptions(state.people, txDraft.toPersonId)}</select>
+      <label>To person ${isSourceLocation(txDraft.toLocationId) ? '(optional — returning to source)' : '(required)'}</label>
+      <select id="tx_tper" onchange="txHeadChanged()">${isSourceLocation(txDraft.toLocationId)?'<option value="">— none —</option>':'<option value="">Select…</option>'}${personOptions(state.people, txDraft.toPersonId)}</select>
       <div class="divider-label">Items ${fromIsInitial?'<span class="hint">— all catalog items available (source)</span>':'<span class="hint">— only items available at that source</span>'}</div>
       <div class="table-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Amount / Serial</th><th></th></tr></thead><tbody id="tx_items_wrap">${txDraft.rows.map((r,i)=>renderTxRowHtml(r,i)).join('')}</tbody></table></div>
       <button class="btn ghost sm" onclick="addTxRow()">+ Add item</button>
@@ -1302,7 +1313,7 @@ function renderTxModal(){
 }
 function txHeadChanged(){
   captureTxFields();
-  const fromIsInitial = txDraft.fromLocationId === INITIAL_LOC_ID;
+  const fromIsInitial = isSourceLocation(txDraft.fromLocationId);
   if(fromIsInitial){
     txDraft.fromPersonId = '';
   } else if(txDraft.fromLocationId){
@@ -1325,7 +1336,7 @@ function renderTxRowHtml(r,i){
   const it = r.catalogNumber ? itemByCat(r.catalogNumber) : null;
   let detail='<span class="hint" style="font-size:11.5px;">—</span>';
   if(it && it.hasSerial){
-    if(txDraft.fromLocationId===INITIAL_LOC_ID){
+    if(isSourceLocation(txDraft.fromLocationId)){
       detail = `<input id="tx_row_newserials_${i}" value="${escapeHtml(r.newSerials||'')}" placeholder="e.g. SN-90211, SN-90212" style="min-width:170px;">`;
     } else {
       const matches = Object.keys(state.serialState).filter(sn=>{
@@ -1338,7 +1349,7 @@ function renderTxRowHtml(r,i){
         </label>`).join('') : '<span class="hint" style="font-size:11.5px;">none available</span>';
     }
   } else if(it){
-    const hint = txDraft.fromLocationId===INITIAL_LOC_ID ? 'unlimited source' : 'available: '+currentBalance(it.catalogNumber, txDraft.fromLocationId, txDraft.fromPersonId||null);
+    const hint = isSourceLocation(txDraft.fromLocationId) ? 'unlimited source' : 'available: '+currentBalance(it.catalogNumber, txDraft.fromLocationId, txDraft.fromPersonId||null);
     detail = `<input id="tx_row_amt_${i}" type="number" min="1" value="${r.amount}" placeholder="Amount" style="min-width:90px;"><div style="font-size:10px;color:var(--ink-soft);margin-top:3px;">${hint}</div>`;
   }
   return `<tr>
@@ -1389,12 +1400,12 @@ async function submitTx(){
   if(editingTxNumber===null && !canDoTransactions()) return toast('You do not have permission to record transactions');
   captureTxFields();
   if(!txDraft.fromLocationId) return toast('Choose a From location');
-  const fromIsInitial = txDraft.fromLocationId===INITIAL_LOC_ID;
+  const fromIsInitial = isSourceLocation(txDraft.fromLocationId);
   if(!fromIsInitial && !txDraft.fromPersonId) return toast('Choose a From person');
   if(!txDraft.toLocationId) return toast('Choose a To location');
   const fromPerson = txDraft.fromPersonId||null;
   const toPerson = txDraft.toPersonId||null;
-  if(txDraft.toLocationId !== INITIAL_LOC_ID && !toPerson) return toast('A receiving person is required, unless you are returning stock to Initial Stock');
+  if(!isSourceLocation(txDraft.toLocationId) && !toPerson) return toast('A receiving person is required, unless you are returning stock to a source location');
   const validRows = txDraft.rows.filter(r=>r.catalogNumber);
   if(!validRows.length) return toast('Add at least one item');
   const newRows=[]; const qtyNeeded={}; const usedSerials=new Set();
