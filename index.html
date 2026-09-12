@@ -215,6 +215,18 @@ function invKey(cat,locId,perId){ return cat+'__'+locId+'__'+(perId||'none'); }
 function currentBalance(cat,locId,perId){ return state.inventory[invKey(cat,locId,perId)] || 0; }
 function fmtDate(ts){ const d=new Date(ts); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}/${d.getFullYear()}`; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+// Any free-text field (description, name, notes, etc.) can contain characters that are
+// meaningful in HTML — a double quote breaks out of value="...", a < can break the tag
+// entirely. Anywhere user-entered text lands inside an attribute, it must go through this.
+function escapeHtml(str){
+  if(str===null || str===undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 function rebuildInventory(){
   state.inventory = {}; state.serialState = {};
@@ -520,7 +532,7 @@ function openEditUser(id){
   openModal(`
     <div class="modal-head"><h3>Edit user</h3><button class="close" onclick="closeModal()">&times;</button></div>
     ${u.email?`<div class="meta" style="margin-bottom:10px;"><span class="pill">${u.email}</span></div>`:''}
-    <label>Name</label><input id="f_edit_user_name" value="${u.name}">
+    <label>Name</label><input id="f_edit_user_name" value="${escapeHtml(u.name)}">
     <label>Role</label>
     <select id="f_edit_user_role">
       <option value="Admin" ${u.role==='Admin'?'selected':''}>Admin</option>
@@ -647,26 +659,26 @@ function renderSetup(){
   if(setupSub==='locations'){
     const rows = state.locations.map(l=>{
       const actions = canManageLocation() ? (l.isInitial? '<span class="hint">protected</span>' : `<button class="btn ghost sm" onclick="openEditLocation('${l.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteLocation('${l.id}')">Delete</button>`) : '—';
-      return `<tr onclick="openImageViewer('location','${l.id}')" style="cursor:pointer;"><td>${imageThumbHtml('location', l.id)}</td><td>${l.name}</td><td>${l.isInitial?'<span class="pill warn">source</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+      return `<tr onclick="openImageViewer('location','${l.id}')" style="cursor:pointer;"><td>${imageThumbHtml('location', l.id)}</td><td>${escapeHtml(l.name)}</td><td>${l.isInitial?'<span class="pill warn">source</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Name</th><th>Type</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   } else if(setupSub==='people'){
     const rows = state.people.map(p=>{
       const actions = canManagePerson(p) ? `<button class="btn ghost sm" onclick="openEditPerson('${p.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deletePerson('${p.id}')">Delete</button>` : '—';
-      return `<tr onclick="openImageViewer('person','${p.id}')" style="cursor:pointer;"><td>${imageThumbHtml('person', p.id)}</td><td>${p.name}</td><td class="mono">${p.idNumber||'—'}</td><td>${p.phone||'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+      return `<tr onclick="openImageViewer('person','${p.id}')" style="cursor:pointer;"><td>${imageThumbHtml('person', p.id)}</td><td>${escapeHtml(p.name)}</td><td class="mono">${escapeHtml(p.idNumber)||'—'}</td><td>${escapeHtml(p.phone)||'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Name</th><th>ID number</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   } else if(setupSub==='items'){
     const rows = state.items.map(it=>{
       const actions = canManageItem() ? `<button class="btn ghost sm" onclick="openEditItem('${it.catalogNumber}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteItem('${it.catalogNumber}')">Delete</button>` : '—';
       const searchAttr = (it.catalogNumber+' '+it.description).toLowerCase();
-      return `<tr data-search="${searchAttr}" onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${it.catalogNumber}</td><td>${it.description}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
+      return `<tr data-search="${searchAttr}" onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${escapeHtml(it.catalogNumber)}</td><td>${escapeHtml(it.description)}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Catalog #</th><th>Description</th><th>Serialized</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   } else {
     const rows = state.users.map(u=>{
       const isYou = currentAuthUser && (connectedToRealDb ? (u.email && currentAuthUser.email===u.email) : currentAuthUser.id===u.id);
-      return `<tr><td>${u.name}${isYou?' <span class="pill">you</span>':''}</td><td><span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span></td><td style="white-space:nowrap;"><button class="btn ghost sm" onclick="openEditUser('${u.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteUser('${u.id}')">Delete</button></td></tr>`;
+      return `<tr><td>${escapeHtml(u.name)}${isYou?' <span class="pill">you</span>':''}</td><td><span class="pill ${u.role==='Admin'?'warn':''}">${u.role}</span></td><td style="white-space:nowrap;"><button class="btn ghost sm" onclick="openEditUser('${u.id}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteUser('${u.id}')">Delete</button></td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
   }
@@ -833,7 +845,7 @@ function openEditLocation(id){
   pendingImageData = l.image || null;
   openModal(`
     <div class="modal-head"><h3>Edit location</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    <label>Name</label><input id="f_edit_name" value="${l.name}">
+    <label>Name</label><input id="f_edit_name" value="${escapeHtml(l.name)}">
     ${imageFieldHtml(l.image,'f_edit_image_preview')}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditLocation('${id}')">Save changes</button></div>
   `);
@@ -876,9 +888,9 @@ function openEditPerson(id){
   pendingImageData = p.image || null;
   openModal(`
     <div class="modal-head"><h3>Edit person</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    <label>Name</label><input id="f_edit_name" value="${p.name}">
-    <label>ID number</label><input id="f_edit_idnum" class="mono-input" value="${p.idNumber||''}">
-    <label>Phone number</label><input id="f_edit_phone" value="${p.phone||''}">
+    <label>Name</label><input id="f_edit_name" value="${escapeHtml(p.name)}">
+    <label>ID number</label><input id="f_edit_idnum" class="mono-input" value="${escapeHtml(p.idNumber||'')}">
+    <label>Phone number</label><input id="f_edit_phone" value="${escapeHtml(p.phone||'')}">
     ${imageFieldHtml(p.image,'f_edit_image_preview')}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditPerson('${id}')">Save changes</button></div>
   `);
@@ -924,8 +936,8 @@ function openEditItem(cat){
   pendingImageData = it.image || null;
   openModal(`
     <div class="modal-head"><h3>Edit item</h3><button class="close" onclick="closeModal()">&times;</button></div>
-    <label>Catalog number</label><input id="f_edit_cat" class="mono-input" value="${it.catalogNumber}">
-    <label>Description</label><input id="f_edit_desc" value="${it.description}">
+    <label>Catalog number</label><input id="f_edit_cat" class="mono-input" value="${escapeHtml(it.catalogNumber)}">
+    <label>Description</label><input id="f_edit_desc" value="${escapeHtml(it.description)}">
     <div class="checkbox-row"><input type="checkbox" id="f_edit_serial" ${it.hasSerial?'checked':''} ${inUse?'disabled':''} style="width:auto;"><label style="margin:0;">Tracked by individual serial numbers${inUse?' <span class="hint">(locked — item has transaction history)</span>':''}</label></div>
     ${imageFieldHtml(it.image,'f_edit_image_preview')}
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="saveEditItem('${cat}')">Save changes</button></div>
@@ -1278,9 +1290,9 @@ function renderTxModal(){
       <div class="table-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Amount / Serial</th><th></th></tr></thead><tbody id="tx_items_wrap">${txDraft.rows.map((r,i)=>renderTxRowHtml(r,i)).join('')}</tbody></table></div>
       <button class="btn ghost sm" onclick="addTxRow()">+ Add item</button>
       <label>Notes (optional)</label>
-      <input id="tx_notes" value="${txDraft.notes||''}">
+      <input id="tx_notes" value="${escapeHtml(txDraft.notes||'')}">
       <label>Transaction user</label>
-      <input id="tx_user" value="${txDraft.user||''}" placeholder="Who is recording this?">
+      <input id="tx_user" value="${escapeHtml(txDraft.user||'')}" placeholder="Who is recording this?">
       <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="submitTx()">${editingTxNumber!==null?'Save changes':'Confirm transaction'}</button></div>
       ${editingTxNumber!==null?'<button class="btn secondary sm" style="margin-top:8px;" onclick="closeModal()">Cancel edit</button>':''}
     `;
@@ -1314,7 +1326,7 @@ function renderTxRowHtml(r,i){
   let detail='<span class="hint" style="font-size:11.5px;">—</span>';
   if(it && it.hasSerial){
     if(txDraft.fromLocationId===INITIAL_LOC_ID){
-      detail = `<input id="tx_row_newserials_${i}" value="${r.newSerials||''}" placeholder="e.g. SN-90211, SN-90212" style="min-width:170px;">`;
+      detail = `<input id="tx_row_newserials_${i}" value="${escapeHtml(r.newSerials||'')}" placeholder="e.g. SN-90211, SN-90212" style="min-width:170px;">`;
     } else {
       const matches = Object.keys(state.serialState).filter(sn=>{
         const s=state.serialState[sn];
