@@ -159,7 +159,6 @@ function isSourceLocation(id){
   return !!(l && l.isInitial);
 }
 let idc = 100;
-let txCounter = 1005;
 const newId = (p) => p + '_' + (idc++);
 let currentUser = '';
 let currentAuthUser = null;
@@ -1255,6 +1254,13 @@ function renderMove(){
 
 let txDraft = null;
 let editingTxNumber = null;
+// Always derive the next transaction number from what's actually in state.transactions,
+// rather than tracking it separately — a separate counter can never stay in sync with
+// the real database once other people (or other sessions) are also creating transactions.
+function nextTxNumberPreview(){
+  const nums = state.transactions.map(t=>Number(t.txNumber)).filter(n=>!isNaN(n));
+  return (nums.length ? Math.max(...nums) : 1000) + 1;
+}
 function openTransactionForm(prefillCat){
   if(!canDoTransactions()) return toast('You do not have permission to record transactions');
   editingTxNumber = null;
@@ -1271,7 +1277,7 @@ function renderTxModal(){
   const readyForRest = fromChosen && (fromIsInitial || !!txDraft.fromPersonId);
 
   let html = `
-    <div class="modal-head"><h3>${editingTxNumber!==null ? 'Edit Transaction <span class="hint">#'+editingTxNumber+'</span>' : 'New Transaction <span class="hint">#'+txCounter+'</span>'}</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-head"><h3>${editingTxNumber!==null ? 'Edit Transaction <span class="hint">#'+editingTxNumber+'</span>' : 'New Transaction <span class="hint">#'+nextTxNumberPreview()+'</span>'}</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Date</label>
     <div style="padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--chip-bg);color:var(--ink-soft);font-size:14px;">${fmtDate(editingTxNumber!==null ? (txDraft.originalTimestamp||Date.now()) : Date.now())}</div>
     <div class="divider-label">From</div>
@@ -1453,7 +1459,7 @@ async function submitTx(){
     const txNum = editingTxNumber;
     if(connectedToRealDb){
       try { await callBackend('updateTransaction', {txNumber:txNum, ...backendPayload}); }
-      catch(err){ return toast(err.message); }
+      catch(err){ await syncFromBackend(); editingTxNumber=null; closeModal(); toast(err.message); renderAll(); return; }
       editingTxNumber=null; await syncFromBackend(); closeModal(); toast('Transaction updated'); renderAll(); return;
     }
     const original = state.transactions.find(t=>t.txNumber===editingTxNumber);
@@ -1466,12 +1472,12 @@ async function submitTx(){
   } else {
     if(connectedToRealDb){
       try { await callBackend('createTransaction', backendPayload); }
-      catch(err){ return toast(err.message); }
+      catch(err){ await syncFromBackend(); closeModal(); toast(err.message); renderAll(); return; }
       currentUser = txDraft.user || currentUser;
       await syncFromBackend(); closeModal(); toast('Transaction recorded'); renderAll(); return;
     }
     const baseTs = Date.now();
-    const batchNumber = txCounter++;
+    const batchNumber = nextTxNumberPreview();
     newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: batchNumber, timestamp: baseTs+idx, ...row}); });
     currentUser = txDraft.user || currentUser;
     rebuildInventory();
@@ -1520,7 +1526,7 @@ async function confirmDeleteTx(txNumber){
   if(!canManageTransactions()) return toast('You do not have permission to delete transactions');
   if(connectedToRealDb){
     try { await callBackend('deleteTransaction', {txNumber}); }
-    catch(err){ return toast(err.message); }
+    catch(err){ await syncFromBackend(); closeModal(); toast(err.message); renderAll(); return; }
     await syncFromBackend(); closeModal(); toast('Transaction deleted'); renderAll(); return;
   }
   state.transactions = state.transactions.filter(t=>t.txNumber!==txNumber);
@@ -1539,7 +1545,7 @@ async function confirmResetAllTx(){
   if(!canManageTransactions()) return toast('You do not have permission to do this');
   if(connectedToRealDb){
     try { await callBackend('resetTransactions'); }
-    catch(err){ return toast(err.message); }
+    catch(err){ await syncFromBackend(); closeModal(); toast(err.message); renderAll(); return; }
     await syncFromBackend(); closeModal(); toast('All transactions cleared'); renderAll(); return;
   }
   state.transactions = [];
