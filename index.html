@@ -129,8 +129,16 @@
       <div class="brand"><span class="dot"></span>Stockline</div>
       <div class="sub">Locations · People · Items</div>
     </div>
-    <div class="pill" id="modeIndicator">set user</div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="refreshBtn" onclick="manualRefresh()" title="Refresh data" style="background:none;border:1px solid var(--line);border-radius:9px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7"/><path d="M21 4v5h-5"/></svg>
+      </button>
+      <div class="pill" id="modeIndicator">set user</div>
+    </div>
   </header>
+  <div id="updateBanner" onclick="manualRefresh()" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--warn-soft);color:var(--warn);padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer;">
+    <span>⟳ New data available — tap to refresh</span>
+  </div>
   <main id="main">
     <section id="tab-overview"></section>
     <section id="tab-setup"></section>
@@ -413,6 +421,8 @@ async function handleGoogleToken(idToken){
     toast('Connection failed: '+err.message);
   }
 }
+let lastKnownModified = 0;
+let updateAvailable = false;
 function applyRemoteData(data){
   state.locations = data.locations.map(l=>({...l, isInitial: String(l.isInitial)==='true', image:l.image||null}));
   state.people = data.people.map(p=>({...p, image:p.image||null}));
@@ -424,7 +434,40 @@ function applyRemoteData(data){
     serialNumber:t.serialNumber? String(t.serialNumber) : null
   }));
   state.users = data.users;
+  lastKnownModified = data.lastModified || 0;
+  updateAvailable = false;
   rebuildInventory();
+}
+// A quiet background ping — costs almost nothing on the backend since it doesn't touch the
+// Sheet at all, just compares a stamp. Only surfaces a banner; never auto-refreshes on its
+// own, so it can't interrupt something you're in the middle of typing.
+async function checkForUpdates(){
+  if(!connectedToRealDb || backendBusy) return;
+  try {
+    const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action:'getVersion', idToken: googleIdToken, payload:{} }) });
+    const data = await res.json();
+    if(data.ok && data.result.lastModified > lastKnownModified){
+      updateAvailable = true;
+      renderUpdateBanner();
+    }
+  } catch(e){ /* silent — a transient network blip here isn't worth bothering the user about */ }
+}
+setInterval(checkForUpdates, 90000);
+function renderUpdateBanner(){
+  const el = document.getElementById('updateBanner');
+  if(el) el.style.display = updateAvailable ? 'flex' : 'none';
+}
+async function manualRefresh(){
+  if(!connectedToRealDb) return toast('Refresh is only needed when connected to a real database');
+  try {
+    const data = await callBackend('getData');
+    applyRemoteData(data);
+    renderUpdateBanner();
+    toast('Refreshed');
+    renderAll();
+  } catch(err){
+    toast('Refresh failed: '+err.message);
+  }
 }
 // Call after any successful write when connected to a real database, so the app
 // reflects exactly what the backend now has — the backend is the source of truth.
@@ -1733,6 +1776,7 @@ function renderAll(){
   renderMove();
   renderReports();
   updateFabVisibility();
+  renderUpdateBanner();
 }
 try{ DB_URL = localStorage.getItem('stockline_db_url') || ''; }catch(e){ DB_URL=''; }
 rebuildInventory();
