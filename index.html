@@ -1606,25 +1606,76 @@ function renderReports(){
     <button class="report-btn" onclick="openCountFormPicker()"><div><div class="r-title">Inventory count form</div><div class="r-desc">Printable count sheet for a selected location</div></div><div class="arrow">↓</div></button>
   `;
 }
+/* ============ HEBREW/UNICODE FONT SUPPORT FOR PDFs ============
+ * jsPDF's built-in fonts (Helvetica etc.) only cover Latin characters — Hebrew (or any
+ * non-Latin script) renders as garbled glyphs unless a font that actually contains those
+ * glyphs is embedded. Rubik is a Google Font covering Latin + Hebrew in one family, so one
+ * embedded font handles both scripts in the same report. Fetched once per session and
+ * cached; if both sources fail (e.g. no internet), reports still generate using the
+ * default font rather than breaking entirely — Hebrew just won't render correctly in that case.
+ */
+const HEBREW_FONT_URLS = [
+  'https://cdn.jsdelivr.net/npm/rubik-font@0.0.3/fonts/Rubik-Regular.ttf',
+  'https://cdn.jsdelivr.net/gh/GoogleCloudPlatform/ios-docs-samples@master/dialogflow/stopwatch/Stopwatch/Fonts/Rubik-Regular.ttf',
+];
+// jsPDF expects the correct BiDi options on every text() call to correctly reorder Hebrew
+// (and any other RTL) runs while leaving embedded numbers/Latin words in the right order —
+// without this, mixed content like "שלום 123" renders with the numbers reversed too.
+const HEBREW_TEXT_OPTS = { isInputVisual:false, isOutputVisual:true, isInputRtl:false, isOutputRtl:false };
+let hebrewFontBase64 = null;
+function arrayBufferToBase64(buffer){
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for(let i=0;i<bytes.length;i+=chunkSize){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i,i+chunkSize));
+  }
+  return btoa(binary);
+}
+async function loadHebrewFontBase64(){
+  if(hebrewFontBase64) return hebrewFontBase64;
+  for(const url of HEBREW_FONT_URLS){
+    try {
+      const res = await fetch(url);
+      if(!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      hebrewFontBase64 = arrayBufferToBase64(buf);
+      return hebrewFontBase64;
+    } catch(e){ /* try next source */ }
+  }
+  return null;
+}
+async function ensureHebrewFont(doc){
+  try {
+    const base64 = await loadHebrewFontBase64();
+    if(!base64) return false;
+    doc.addFileToVFS('Rubik-Regular.ttf', base64);
+    doc.addFont('Rubik-Regular.ttf', 'Rubik', 'normal');
+    doc.setFont('Rubik','normal');
+    return true;
+  } catch(e){
+    return false;
+  }
+}
 function pdfHeader(doc,title){
-  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(27,31,27);
-  doc.text('Stockline', 14, 16);
-  doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(90,95,90);
-  doc.text(title, 14, 23);
-  doc.text('Generated '+new Date().toLocaleString(), 14, 29);
+  doc.setFont('Rubik','normal'); doc.setFontSize(15); doc.setTextColor(27,31,27);
+  doc.text('Stockline', 14, 16, HEBREW_TEXT_OPTS);
+  doc.setFontSize(11); doc.setTextColor(90,95,90);
+  doc.text(title, 14, 23, HEBREW_TEXT_OPTS);
+  doc.text('Generated '+new Date().toLocaleString(), 14, 29, HEBREW_TEXT_OPTS);
   doc.setDrawColor(220,224,220); doc.line(14,33,196,33);
   return 40;
 }
 function drawTable(doc, headers, rows, startY){
   const colCount = headers.length; const pageWidth = 182; const colW = pageWidth/colCount;
   let y = startY;
-  doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(47,111,94);
-  headers.forEach((h,i)=>doc.text(String(h), 14+i*colW, y));
+  doc.setFontSize(8.5); doc.setFont('Rubik','normal'); doc.setTextColor(47,111,94);
+  headers.forEach((h,i)=>doc.text(String(h), 14+i*colW, y, HEBREW_TEXT_OPTS));
   y+=3; doc.setDrawColor(220,224,220); doc.line(14,y,196,y); y+=6;
-  doc.setFont('helvetica','normal'); doc.setTextColor(27,31,27);
+  doc.setTextColor(27,31,27);
   rows.forEach(row=>{
     if(y>280){ doc.addPage(); y=20; }
-    row.forEach((cell,i)=>{ const text = doc.splitTextToSize(String(cell ?? ''), colW-2); doc.text(text, 14+i*colW, y); });
+    row.forEach((cell,i)=>{ const text = doc.splitTextToSize(String(cell ?? ''), colW-2); doc.text(text, 14+i*colW, y, HEBREW_TEXT_OPTS); });
     y+=7;
   });
   return y;
@@ -1641,10 +1692,11 @@ function openTxReportPicker(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfTxReport()">Generate PDF</button></div>
   `);
 }
-function pdfTxReport(){
+async function pdfTxReport(){
   const num = parseInt(document.getElementById('rep_tx').value,10);
   const g = groupTransactions().find(x=>x.txNumber===num);
   const doc = new jspdf.jsPDF();
+  await ensureHebrewFont(doc);
   let y = pdfHeader(doc, 'Transaction Report — #'+g.txNumber);
   const meta = [
     ['Transaction ID', '#'+g.txNumber],
@@ -1658,13 +1710,13 @@ function pdfTxReport(){
   ];
   doc.setFontSize(10);
   meta.forEach(([label,val])=>{
-    doc.setFont('helvetica','bold'); doc.setTextColor(47,111,94); doc.text(String(label), 14, y);
-    doc.setFont('helvetica','normal'); doc.setTextColor(27,31,27); doc.text(String(val), 60, y);
+    doc.setFont('Rubik','normal'); doc.setTextColor(47,111,94); doc.text(String(label), 14, y, HEBREW_TEXT_OPTS);
+    doc.setTextColor(27,31,27); doc.text(String(val), 60, y, HEBREW_TEXT_OPTS);
     y+=7;
   });
   y+=5;
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(27,31,27);
-  doc.text('Items in this transaction', 14, y); y+=7;
+  doc.setFontSize(11); doc.setTextColor(27,31,27);
+  doc.text('Items in this transaction', 14, y, HEBREW_TEXT_OPTS); y+=7;
   const rows = g.lines.map(l=>[l.catalogNumber, itemByCat(l.catalogNumber)?.description||'', l.amount, l.serialNumber||'—']);
   y = drawTable(doc, ['Catalog #','Description','Amount','Serial'], rows, y);
   closeModal();
@@ -1679,13 +1731,14 @@ function openPersonReportPicker(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfPersonReport()">Generate PDF</button></div>
   `);
 }
-function pdfPersonReport(){
+async function pdfPersonReport(){
   const pid = document.getElementById('rep_person').value;
   const p = state.people.find(x=>x.id===pid);
   const doc = new jspdf.jsPDF();
+  await ensureHebrewFont(doc);
   let y = pdfHeader(doc, 'Inventory — '+p.name);
   doc.setFontSize(10); doc.setTextColor(90,95,90);
-  doc.text((p.idNumber?'ID '+p.idNumber+'   ':'')+(p.phone||''), 14, y); y+=8;
+  doc.text((p.idNumber?'ID '+p.idNumber+'   ':'')+(p.phone||''), 14, y, HEBREW_TEXT_OPTS); y+=8;
   const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[2]===pid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
     const parts=k.split('__'); return [parts[0], itemByCat(parts[0])?.description||'', state.inventory[k], locationLabel(parts[1])];
   });
@@ -1694,7 +1747,7 @@ function pdfPersonReport(){
   });
   const all=[...rows,...serialRows];
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Location'], all, y);
-  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Currently holding nothing', 14, y); }
+  else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Currently holding nothing', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
   doc.save(downloadName('inventory_person_'+p.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
@@ -1707,10 +1760,11 @@ function openLocationReportPicker(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfLocationReport()">Generate PDF</button></div>
   `);
 }
-function pdfLocationReport(){
+async function pdfLocationReport(){
   const lid = document.getElementById('rep_location').value;
   const loc = state.locations.find(x=>x.id===lid);
   const doc = new jspdf.jsPDF();
+  await ensureHebrewFont(doc);
   let y = pdfHeader(doc, 'Inventory — '+loc.name);
   const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]!==0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
     const parts=k.split('__'); const perId=parts[2];
@@ -1721,7 +1775,7 @@ function pdfLocationReport(){
   });
   const all=[...rows,...serialRows];
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Held by'], all, y);
-  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Nothing recorded here', 14, y); }
+  else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Nothing recorded here', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
   doc.save(downloadName('inventory_location_'+loc.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
@@ -1734,13 +1788,14 @@ function openCountFormPicker(){
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfCountForm()">Generate PDF</button></div>
   `);
 }
-function pdfCountForm(){
+async function pdfCountForm(){
   const lid = document.getElementById('rep_count_location').value;
   const loc = state.locations.find(x=>x.id===lid);
   const doc = new jspdf.jsPDF();
+  await ensureHebrewFont(doc);
   let y = pdfHeader(doc, 'Inventory Count Form — '+loc.name);
-  doc.setFontSize(9); doc.setTextColor(120,124,120); doc.setFont('helvetica','italic');
-  doc.text('Print and use to record a physical count against expected quantities.', 14, y); y+=9;
+  doc.setFontSize(9); doc.setTextColor(120,124,120);
+  doc.text('Print and use to record a physical count against expected quantities.', 14, y, HEBREW_TEXT_OPTS); y+=9;
   const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
     const parts=k.split('__'); const perId=parts[2];
     return [parts[0], itemByCat(parts[0])?.description||'', perId!=='none'?personLabel(perId):'—', state.inventory[k], '_______', '_______'];
@@ -1750,7 +1805,7 @@ function pdfCountForm(){
   });
   const all=[...rows,...serialRows];
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Held by','Expected','Counted','Notes'], all, y);
-  else { doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.text('Nothing expected at this location', 14, y); }
+  else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Nothing expected at this location', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
   doc.save(downloadName('count_form_'+loc.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
