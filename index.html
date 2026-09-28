@@ -1311,8 +1311,8 @@ function openTransactionForm(prefillCat){
   renderTxModal();
 }
 function renderTxModal(){
-  const locOptions = (selId)=> state.locations.map(l=>`<option value="${l.id}" ${selId===l.id?'selected':''}>${l.name}${l.isInitial?' (source)':''}</option>`).join('');
-  const personOptions = (list, selId)=> list.map(p=>`<option value="${p.id}" ${selId===p.id?'selected':''}>${p.name}</option>`).join('');
+  const locOptions = (selId, allowCreate)=> state.locations.map(l=>`<option value="${l.id}" ${selId===l.id?'selected':''}>${l.name}${l.isInitial?' (source)':''}</option>`).join('') + (allowCreate && canCreateLocationsOrItems() ? `<option value="__new__" ${selId==='__new__'?'selected':''}>+ Create new location…</option>` : '');
+  const personOptions = (list, selId, allowCreate)=> list.map(p=>`<option value="${p.id}" ${selId===p.id?'selected':''}>${p.name}</option>`).join('') + (allowCreate && canCreatePeople() ? `<option value="__new__" ${selId==='__new__'?'selected':''}>+ Create new person…</option>` : '');
 
   const fromChosen = !!txDraft.fromLocationId;
   const fromIsInitial = isSourceLocation(txDraft.fromLocationId);
@@ -1325,7 +1325,7 @@ function renderTxModal(){
     <div style="padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:var(--chip-bg);color:var(--ink-soft);font-size:14px;">${fmtDate(editingTxNumber!==null ? (txDraft.originalTimestamp||Date.now()) : Date.now())}</div>
     <div class="divider-label">From</div>
     <label>From location</label>
-    <select id="tx_floc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.fromLocationId)}</select>
+    <select id="tx_floc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.fromLocationId, false)}</select>
   `;
 
   if(fromChosen && !fromIsInitial){
@@ -1333,7 +1333,7 @@ function renderTxModal(){
       <label>From person (required)</label>
       <select id="tx_fper" onchange="txHeadChanged()">
         <option value="">Select…</option>
-        ${personOptions(eligibleFromPeople, txDraft.fromPersonId)}
+        ${personOptions(eligibleFromPeople, txDraft.fromPersonId, false)}
       </select>
       ${!eligibleFromPeople.length ? '<div class="empty">No one currently holds stock at this location.</div>' : ''}
     `;
@@ -1343,9 +1343,17 @@ function renderTxModal(){
     html += `
       <div class="divider-label">To</div>
       <label>To location</label>
-      <select id="tx_tloc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.toLocationId)}</select>
+      <select id="tx_tloc" onchange="txHeadChanged()"><option value="">Select…</option>${locOptions(txDraft.toLocationId, true)}</select>
+      ${txDraft.toLocationId==='__new__' ? `<input id="tx_new_loc_name" value="${escapeHtml(txDraft.newLocationName||'')}" placeholder="New location name">` : ''}
       <label>To person ${isSourceLocation(txDraft.toLocationId) ? '(optional — returning to source)' : '(required)'}</label>
-      <select id="tx_tper" onchange="txHeadChanged()">${isSourceLocation(txDraft.toLocationId)?'<option value="">— none —</option>':'<option value="">Select…</option>'}${personOptions(state.people, txDraft.toPersonId)}</select>
+      <select id="tx_tper" onchange="txHeadChanged()">${isSourceLocation(txDraft.toLocationId)?'<option value="">— none —</option>':'<option value="">Select…</option>'}${personOptions(state.people, txDraft.toPersonId, true)}</select>
+      ${txDraft.toPersonId==='__new__' ? `
+        <input id="tx_new_per_name" value="${escapeHtml(txDraft.newPersonName||'')}" placeholder="New person name" style="margin-bottom:8px;">
+        <div class="dest-row" style="margin:0;">
+          <input id="tx_new_per_idnum" class="mono-input" value="${escapeHtml(txDraft.newPersonIdNumber||'')}" placeholder="ID number (optional)">
+          <input id="tx_new_per_phone" value="${escapeHtml(txDraft.newPersonPhone||'')}" placeholder="Phone (optional)">
+        </div>
+      ` : ''}
       <div class="divider-label">Items ${fromIsInitial?'<span class="hint">— all catalog items available (source)</span>':'<span class="hint">— only items available at that source</span>'}</div>
       <div class="table-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Amount / Serial</th><th></th></tr></thead><tbody id="tx_items_wrap">${txDraft.rows.map((r,i)=>renderTxRowHtml(r,i)).join('')}</tbody></table></div>
       <button class="btn ghost sm" onclick="addTxRow()">+ Add item</button>
@@ -1429,6 +1437,10 @@ function captureTxFields(){
   if(g('tx_fper')) txDraft.fromPersonId=g('tx_fper').value;
   if(g('tx_tloc')) txDraft.toLocationId=g('tx_tloc').value;
   if(g('tx_tper')) txDraft.toPersonId=g('tx_tper').value;
+  if(g('tx_new_loc_name')) txDraft.newLocationName=g('tx_new_loc_name').value;
+  if(g('tx_new_per_name')) txDraft.newPersonName=g('tx_new_per_name').value;
+  if(g('tx_new_per_idnum')) txDraft.newPersonIdNumber=g('tx_new_per_idnum').value;
+  if(g('tx_new_per_phone')) txDraft.newPersonPhone=g('tx_new_per_phone').value;
   if(g('tx_notes')) txDraft.notes=g('tx_notes').value;
   if(g('tx_user')) txDraft.user=g('tx_user').value;
   txDraft.rows.forEach((r,i)=>{
@@ -1452,6 +1464,43 @@ async function submitTx(){
   const fromIsInitial = isSourceLocation(txDraft.fromLocationId);
   if(!fromIsInitial && !txDraft.fromPersonId) return toast('Choose a From person');
   if(!txDraft.toLocationId) return toast('Choose a To location');
+
+  // Resolve "+ Create new..." placeholders into real records before anything below uses them
+  if(txDraft.toLocationId === '__new__'){
+    if(!canCreateLocationsOrItems()) return toast('You do not have permission to create locations');
+    const newName = (txDraft.newLocationName||'').trim();
+    if(!newName) return toast('Enter a name for the new location');
+    if(connectedToRealDb){
+      let result;
+      try { result = await callBackend('saveLocation', {name:newName, isInitial:false, image:null}); }
+      catch(err){ return toast(err.message); }
+      state.locations.push({...result, isInitial:String(result.isInitial)==='true'});
+      txDraft.toLocationId = result.id;
+    } else {
+      const newLocId = newId('loc');
+      state.locations.push({id:newLocId, name:newName, isInitial:false, image:null, createdBy:currentAuthUser.id});
+      txDraft.toLocationId = newLocId;
+    }
+  }
+  if(txDraft.toPersonId === '__new__'){
+    if(!canCreatePeople()) return toast('You do not have permission to create people');
+    const newName = (txDraft.newPersonName||'').trim();
+    if(!newName) return toast('Enter a name for the new person');
+    const idNumber = (txDraft.newPersonIdNumber||'').trim();
+    const phone = (txDraft.newPersonPhone||'').trim();
+    if(connectedToRealDb){
+      let result;
+      try { result = await callBackend('savePerson', {name:newName, idNumber, phone, image:null}); }
+      catch(err){ return toast(err.message); }
+      state.people.push(result);
+      txDraft.toPersonId = result.id;
+    } else {
+      const newPerId = newId('per');
+      state.people.push({id:newPerId, name:newName, idNumber, phone, image:null, createdBy:currentAuthUser.id});
+      txDraft.toPersonId = newPerId;
+    }
+  }
+
   const fromPerson = txDraft.fromPersonId||null;
   const toPerson = txDraft.toPersonId||null;
   if(!isSourceLocation(txDraft.toLocationId) && !toPerson) return toast('A receiving person is required, unless you are returning stock to a source location');
