@@ -1120,12 +1120,12 @@ function invSelectionLock(){
   return {locationId:first.locationId, personId:first.personId||null};
 }
 function invCheckboxHtml(payload){
-  if(!canDoTransactions()) return '<td class="chk"></td>';
+  if(!canDoTransactions()) return '<td class="chk" onclick="event.stopPropagation();"></td>';
   const key = invRowKey(payload);
   const lock = invSelectionLock();
   const matches = !lock || (lock.locationId===payload.locationId && lock.personId===(payload.personId||null));
   const checked = selectedInvRows.has(key);
-  return `<td class="chk"><input type="checkbox" ${checked?'checked':''} ${!matches?'disabled':''} onchange='toggleInvRow(${JSON.stringify(payload)}, this.checked)'></td>`;
+  return `<td class="chk" onclick="event.stopPropagation();"><input type="checkbox" ${checked?'checked':''} ${!matches?'disabled':''} onchange='toggleInvRow(${JSON.stringify(payload)}, this.checked)'></td>`;
 }
 function toggleInvRow(payload, checked){
   const key = invRowKey(payload);
@@ -1173,6 +1173,62 @@ function createTxFromSelection(){
   renderInventory();
   renderTxModal();
 }
+function renderTxHistoryModal(titleHtml, subtitle, transactions){
+  let bodyHtml;
+  if(!transactions.length){
+    bodyHtml = '<div class="empty">No transactions found for this line.</div>';
+  } else {
+    const rows = transactions.map(t=>{
+      let amtCell;
+      if(t.serialNumber){ amtCell = '—'; }
+      else if(t.displaySign===-1){ amtCell = `<span style="color:var(--danger);">-${t.amount}</span>`; }
+      else { amtCell = t.amount; }
+      return `<tr>
+      <td class="mono">#${t.txNumber}</td>
+      <td>${fmtDate(t.timestamp)}</td>
+      <td>${locationLabel(t.fromLocationId)}${t.fromPersonId?' ('+personLabel(t.fromPersonId)+')':''}</td>
+      <td>${locationLabel(t.toLocationId)}${t.toPersonId?' ('+personLabel(t.toPersonId)+')':''}</td>
+      <td class="num">${amtCell}</td>
+      <td class="mono">${t.serialNumber||'—'}</td>
+      <td>${t.transactionUser||'—'}</td>
+    </tr>`;
+    }).join('');
+    bodyHtml = `<div class="table-wrap-flat"><table class="dtable"><thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Serial</th><th>User</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  openModal(`
+    <div class="modal-head"><h3>Transaction History</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="meta" style="margin-bottom:10px;">${titleHtml}${subtitle?` <span class="hint">${escapeHtml(subtitle)}</span>`:''}</div>
+    ${bodyHtml}
+  `);
+}
+// Every transaction that ever added to or drew down this specific catalog#/location/person
+// bucket — lets you trace exactly how its current balance was reached.
+function showBucketHistory(catalogNumber, locationId, personId){
+  const pid = personId || null;
+  const filtered = state.transactions.filter(t=>{
+    if(t.catalogNumber !== catalogNumber || t.serialNumber) return false;
+    const matchesFrom = t.fromLocationId===locationId && (t.fromPersonId||null)===pid;
+    const matchesTo = t.toLocationId===locationId && (t.toPersonId||null)===pid;
+    return matchesFrom || matchesTo;
+  }).sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber)
+  .map(t=>{
+    const isOutflow = t.fromLocationId===locationId && (t.fromPersonId||null)===pid;
+    return {...t, displaySign: isOutflow ? -1 : 1};
+  });
+  const it = itemByCat(catalogNumber);
+  const title = `<span class="tag">${catalogNumber}</span> ${it?escapeHtml(it.description):''}`;
+  const subtitle = pid ? (locationLabel(locationId)+' — '+personLabel(pid)) : locationLabel(locationId);
+  renderTxHistoryModal(title, subtitle, filtered);
+}
+// The full movement history of one specific serialized unit, regardless of where it is now.
+function showSerialHistory(serialNumber){
+  const filtered = state.transactions.filter(t=>t.serialNumber===serialNumber)
+    .sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber);
+  const s = state.serialState[serialNumber];
+  const it = s ? itemByCat(s.catalogNumber) : null;
+  const title = `<span class="tag serial">${serialNumber}</span> ${it?escapeHtml(it.description):''}`;
+  renderTxHistoryModal(title, '', filtered);
+}
 function renderInventory(){
   let body='';
   if(invSub==='locations'){
@@ -1182,13 +1238,13 @@ function renderInventory(){
       Object.keys(state.inventory).filter(k=>{ const p=k.split('__'); return p[1]===loc.id && state.inventory[k]>0 && !itemByCat(p[0])?.hasSerial; }).forEach(k=>{
         const parts=k.split('__'); const cat=parts[0], perId=parts[2]; const it=itemByCat(cat);
         const payload = {type:'qty', catalogNumber:cat, locationId:loc.id, personId: perId!=='none'?perId:null, amount: state.inventory[k]};
-        rowsArr.push({cat, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${perId!=='none'?personLabel(perId):'—'}</td><td class="num">${state.inventory[k]}</td></tr>`});
+        rowsArr.push({cat, html:`<tr onclick="showBucketHistory('${cat}','${loc.id}','${perId!=='none'?perId:''}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${perId!=='none'?personLabel(perId):'—'}</td><td class="num">${state.inventory[k]}</td></tr>`});
         unitCount += state.inventory[k];
       });
       Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===loc.id).forEach(sn=>{
         const s=state.serialState[sn]; const it=itemByCat(s.catalogNumber);
         const payload = {type:'serial', catalogNumber:s.catalogNumber, locationId:loc.id, personId:s.personId||null, serialNumber:sn};
-        rowsArr.push({cat:s.catalogNumber, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td class="mono">${sn}</td></tr>`});
+        rowsArr.push({cat:s.catalogNumber, html:`<tr onclick="showSerialHistory('${sn}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td class="mono">${sn}</td></tr>`});
         unitCount += 1;
       });
       rowsArr.sort((a,b)=>a.cat.localeCompare(b.cat,undefined,{numeric:true,sensitivity:'base'}));
@@ -1202,13 +1258,13 @@ function renderInventory(){
       Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[2]===p.id && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).forEach(k=>{
         const parts=k.split('__'); const cat=parts[0], locId=parts[1]; const it=itemByCat(cat);
         const payload = {type:'qty', catalogNumber:cat, locationId:locId, personId:p.id, amount: state.inventory[k]};
-        rowsArr.push({cat, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`});
+        rowsArr.push({cat, html:`<tr onclick="showBucketHistory('${cat}','${locId}','${p.id}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${cat}</td><td>${it?it.description:''}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`});
         unitCount += state.inventory[k];
       });
       Object.keys(state.serialState).filter(sn=>state.serialState[sn].personId===p.id).forEach(sn=>{
         const s=state.serialState[sn]; const it=itemByCat(s.catalogNumber);
         const payload = {type:'serial', catalogNumber:s.catalogNumber, locationId:s.locationId, personId:p.id, serialNumber:sn};
-        rowsArr.push({cat:s.catalogNumber, html:`<tr>${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${locationLabel(s.locationId)}</td><td class="mono">${sn}</td></tr>`});
+        rowsArr.push({cat:s.catalogNumber, html:`<tr onclick="showSerialHistory('${sn}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${locationLabel(s.locationId)}</td><td class="mono">${sn}</td></tr>`});
         unitCount += 1;
       });
       if(!rowsArr.length) return '';
@@ -1225,7 +1281,7 @@ function renderInventory(){
         Object.keys(state.serialState).filter(sn=>state.serialState[sn].catalogNumber===it.catalogNumber && !isSourceLocation(state.serialState[sn].locationId)).forEach(sn=>{
           const s=state.serialState[sn];
           const payload = {type:'serial', catalogNumber:it.catalogNumber, locationId:s.locationId, personId:s.personId||null, serialNumber:sn};
-          rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td class="mono">${sn}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td>${locationLabel(s.locationId)}</td></tr>`);
+          rowsArr.push(`<tr onclick="showSerialHistory('${sn}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${sn}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td>${locationLabel(s.locationId)}</td></tr>`);
           unitCount += 1;
         });
       } else {
@@ -1233,7 +1289,7 @@ function renderInventory(){
         Object.keys(state.inventory).filter(k=>k.startsWith(it.catalogNumber+'__') && !isSourceLocation(k.split('__')[1]) && state.inventory[k]>0).forEach(k=>{
           const parts=k.split('__'); const locId=parts[1], perId=parts[2];
           const payload = {type:'qty', catalogNumber:it.catalogNumber, locationId:locId, personId: perId!=='none'?perId:null, amount: state.inventory[k]};
-          rowsArr.push(`<tr>${invCheckboxHtml(payload)}<td>${perId!=='none'?personLabel(perId):'—'}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`);
+          rowsArr.push(`<tr onclick="showBucketHistory('${it.catalogNumber}','${locId}','${perId!=='none'?perId:''}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td>${perId!=='none'?personLabel(perId):'—'}</td><td>${locationLabel(locId)}</td><td class="num">${state.inventory[k]}</td></tr>`);
           unitCount += state.inventory[k];
         });
       }
