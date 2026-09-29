@@ -136,6 +136,9 @@
       <div class="pill" id="modeIndicator">set user</div>
     </div>
   </header>
+  <div id="sessionExpiredBanner" onclick="reAuthenticate()" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--danger);color:#fff;padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer;">
+    <span>⚠ Session expired — tap to sign in again</span>
+  </div>
   <div id="updateBanner" onclick="manualRefresh()" style="display:none;align-items:center;justify-content:center;gap:8px;background:var(--warn-soft);color:var(--warn);padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer;">
     <span>⟳ New data available — tap to refresh</span>
   </div>
@@ -374,15 +377,27 @@ function confirmDbUrl(){
   `;
   renderGoogleSignIn('gsiContainer', handleGoogleToken);
 }
-function renderGoogleSignIn(containerId, onToken){
+// Google's sign-in library loads async — it can genuinely still be loading when this first
+// runs (slow connection, cold cache). Rather than checking once and giving up, wait for it,
+// up to ~10 seconds, before showing a real failure message.
+function renderGoogleSignIn(containerId, onToken, attemptsLeft){
+  if(attemptsLeft===undefined) attemptsLeft = 40;
   if(!window.google || !google.accounts || !google.accounts.id){
-    document.getElementById(containerId).innerHTML = '<div class="empty">Google Sign-In failed to load — check your connection and reload.</div>';
+    if(attemptsLeft <= 0){
+      const el = document.getElementById(containerId);
+      if(el) el.innerHTML = '<div class="empty">Google Sign-In failed to load — check your connection and reload.</div>';
+      return;
+    }
+    setTimeout(()=>renderGoogleSignIn(containerId, onToken, attemptsLeft-1), 250);
     return;
   }
-  google.accounts.id.initialize({ client_id: OAUTH_CLIENT_ID, callback: (resp)=>onToken(resp.credential) });
+  // auto_select: returning users with an active Google session and prior consent get
+  // recognized automatically instead of needing to tap the button every single visit.
+  google.accounts.id.initialize({ client_id: OAUTH_CLIENT_ID, auto_select:true, callback: (resp)=>onToken(resp.credential) });
   google.accounts.id.renderButton(document.getElementById(containerId), { theme:'outline', size:'large', width:280 });
 }
 let backendBusy = false;
+let sessionExpired = false;
 async function callBackend(action, payload){
   if(backendBusy) throw new Error('Please wait for the previous action to finish');
   backendBusy = true;
@@ -391,12 +406,31 @@ async function callBackend(action, payload){
   try {
     const res = await fetch(DB_URL, { method:'POST', body: JSON.stringify({ action, idToken: googleIdToken, payload: payload||{} }) });
     const data = await res.json();
-    if(!data.ok) throw new Error(data.error || 'Request failed');
+    if(!data.ok){
+      if(/invalid or expired sign-in/i.test(data.error||'')){ sessionExpired = true; renderSessionExpiredBanner(); }
+      throw new Error(data.error || 'Request failed');
+    }
     return data.result;
   } finally {
     backendBusy = false;
     if(overlay) overlay.style.display='none';
   }
+}
+function renderSessionExpiredBanner(){
+  const el = document.getElementById('sessionExpiredBanner');
+  if(el) el.style.display = sessionExpired ? 'flex' : 'none';
+}
+// A lighter-weight re-auth path than the main sign-in flow — it only refreshes the token,
+// without navigating away or disturbing whatever you were in the middle of doing.
+function reAuthenticate(){
+  if(!window.google || !google.accounts || !google.accounts.id){ toast('Google Sign-In not available — try reloading the page'); return; }
+  google.accounts.id.initialize({ client_id: OAUTH_CLIENT_ID, callback: (resp)=>{
+    googleIdToken = resp.credential;
+    sessionExpired = false;
+    renderSessionExpiredBanner();
+    toast('Signed in again — you can retry your last action');
+  }});
+  google.accounts.id.prompt();
 }
 async function handleGoogleToken(idToken){
   googleIdToken = idToken;
@@ -527,6 +561,8 @@ function forgetDb(){
 }
 function logout(){
   currentAuthUser = null;
+  sessionExpired = false;
+  if(window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
   document.getElementById('app').style.display='none';
   if(connectedToRealDb){
     connectedToRealDb = false; googleIdToken=null; dbSetupMode=null;
@@ -1937,6 +1973,7 @@ function renderAll(){
   renderReports();
   updateFabVisibility();
   renderUpdateBanner();
+  renderSessionExpiredBanner();
 }
 try{ DB_URL = localStorage.getItem('stockline_db_url') || ''; }catch(e){ DB_URL=''; }
 rebuildInventory();
