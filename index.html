@@ -1522,15 +1522,21 @@ function renderTxRowHtml(r,i){
     <td style="text-align:right;"><button type="button" onclick="removeTxRow(${i})" style="background:none;border:none;color:var(--danger);font-size:18px;">&times;</button></td>
   </tr>`;
 }
-function filterTxItemOptions(i, searchVal){
+// Generic version: filters any select's options by a data-search attribute, so the same
+// "type to narrow down" behavior used in Setup > Items and the transaction item picker can
+// be reused anywhere a searchable dropdown of items is needed.
+function filterSelectOptions(selectId, searchVal){
   const term = searchVal.trim().toLowerCase();
-  const select = document.getElementById('tx_row_cat_'+i);
+  const select = document.getElementById(selectId);
   if(!select) return;
   Array.from(select.options).forEach(opt=>{
     if(!opt.value){ opt.style.display=''; return; } // always keep the placeholder option visible
     const match = !term || (opt.dataset.search||'').includes(term);
     opt.style.display = match ? '' : 'none';
   });
+}
+function filterTxItemOptions(i, searchVal){
+  filterSelectOptions('tx_row_cat_'+i, searchVal);
 }
 function captureTxFields(){
   const g=id=>document.getElementById(id);
@@ -1915,10 +1921,11 @@ async function pdfTxReport(){
   toast('PDF downloaded');
 }
 function openItemHistoryReportPicker(){
-  const opts = state.items.map(i=>`<option value="${i.catalogNumber}">${i.catalogNumber} — ${i.description}</option>`).join('');
+  const opts = state.items.map(i=>`<option value="${i.catalogNumber}" data-search="${(i.catalogNumber+' '+i.description).toLowerCase()}">${i.catalogNumber} — ${i.description}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>Item transaction history</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Item</label>
+    <input type="text" placeholder="Search by catalog # or description…" oninput="filterSelectOptions('rep_item_history', this.value)" style="margin-bottom:6px;">
     <select id="rep_item_history">${opts}</select>
     <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfItemHistoryReport()">Generate PDF</button></div>
   `);
