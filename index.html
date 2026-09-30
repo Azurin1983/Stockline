@@ -225,6 +225,12 @@ const state = {
 function locationLabel(id){ const l=state.locations.find(x=>x.id===id); return l? l.name : '—'; }
 function personLabel(id){ const p=state.people.find(x=>x.id===id); return p? p.name : '—'; }
 function itemByCat(cat){ return state.items.find(i=>i.catalogNumber===cat); }
+// Keeping the master list itself sorted means every place that just iterates state.items
+// in order (Setup, Inventory By Item, the transaction item picker) automatically stays
+// sorted too, without needing a separate .sort() call at each of those spots.
+function sortItemsArray(){
+  state.items.sort((a,b)=>String(a.catalogNumber).localeCompare(String(b.catalogNumber),undefined,{numeric:true,sensitivity:'base'}));
+}
 function invKey(cat,locId,perId){ return cat+'__'+locId+'__'+(perId||'none'); }
 function currentBalance(cat,locId,perId){ return state.inventory[invKey(cat,locId,perId)] || 0; }
 function fmtDate(ts){ const d=new Date(ts); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}/${d.getFullYear()}`; }
@@ -461,6 +467,7 @@ function applyRemoteData(data){
   state.locations = data.locations.map(l=>({...l, isInitial: String(l.isInitial)==='true', image:l.image||null}));
   state.people = data.people.map(p=>({...p, image:p.image||null}));
   state.items = data.items.map(it=>({...it, catalogNumber:String(it.catalogNumber), hasSerial: String(it.hasSerial)==='true', image:it.image||null}));
+  sortItemsArray();
   state.transactions = data.transactions.map(t=>({...t,
     catalogNumber:String(t.catalogNumber),
     amount:Number(t.amount), timestamp:Number(t.timestamp), txNumber:Number(t.txNumber),
@@ -1055,6 +1062,7 @@ async function saveEditItem(oldCat){
   if(!wasInUse) it.hasSerial = hasSerial;
   it.image = pendingImageData;
   pendingImageData = null;
+  sortItemsArray();
   rebuildInventory();
   closeModal(); toast('Item updated'); renderAll();
 }
@@ -1141,6 +1149,7 @@ async function saveItem(){
     pendingImageData=null; await syncFromBackend(); closeModal(); toast('Item added'); renderAll(); return;
   }
   state.items.push({catalogNumber:cat, description:desc, hasSerial, image:pendingImageData, createdBy:currentAuthUser.id});
+  sortItemsArray();
   pendingImageData = null;
   closeModal(); toast('Item added'); renderAll();
 }
@@ -1822,6 +1831,12 @@ function drawTable(doc, headers, rows, startY){
   return y;
 }
 function downloadName(prefix){ return prefix+'_'+new Date().toISOString().slice(0,10)+'.pdf'; }
+// Report rows are built from inventory/transaction data, not from the (already-sorted)
+// items list directly, so each report sorts its own assembled rows by catalog number
+// (always the first column) right before drawing the table.
+function sortRowsByCat(rows){
+  return rows.slice().sort((a,b)=>String(a[0]).localeCompare(String(b[0]),undefined,{numeric:true,sensitivity:'base'}));
+}
 
 function openTxReportPicker(){
   const groups = groupTransactions().sort((a,b)=>b.txNumber-a.txNumber);
@@ -1858,7 +1873,7 @@ async function pdfTxReport(){
   y+=5;
   doc.setFontSize(11); doc.setTextColor(27,31,27);
   doc.text('Items in this transaction', 14, y, HEBREW_TEXT_OPTS); y+=7;
-  const rows = g.lines.map(l=>[l.catalogNumber, itemByCat(l.catalogNumber)?.description||'', l.amount, l.serialNumber||'—']);
+  const rows = sortRowsByCat(g.lines.map(l=>[l.catalogNumber, itemByCat(l.catalogNumber)?.description||'', l.amount, l.serialNumber||'—']));
   y = drawTable(doc, ['Catalog #','Description','Amount','Serial'], rows, y);
   closeModal();
   doc.save(downloadName('transaction_'+g.txNumber));
@@ -1886,7 +1901,7 @@ async function pdfPersonReport(){
   const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].personId===pid).map(sn=>{
     const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, locationLabel(s.locationId)];
   });
-  const all=[...rows,...serialRows];
+  const all=sortRowsByCat([...rows,...serialRows]);
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Location'], all, y);
   else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Currently holding nothing', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
@@ -1914,7 +1929,7 @@ async function pdfLocationReport(){
   const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
     const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, s.personId?personLabel(s.personId):'—'];
   });
-  const all=[...rows,...serialRows];
+  const all=sortRowsByCat([...rows,...serialRows]);
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Qty / Serial','Held by'], all, y);
   else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Nothing recorded here', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
@@ -1944,7 +1959,7 @@ async function pdfCountForm(){
   const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
     const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', s.personId?personLabel(s.personId):'—', sn, '', ''];
   });
-  const all=[...rows,...serialRows];
+  const all=sortRowsByCat([...rows,...serialRows]);
   if(all.length) y=drawTable(doc, ['Catalog #','Description','Held by','Expected','Counted','Notes'], all, y);
   else { doc.setFontSize(9); doc.setTextColor(120,124,120); doc.text('Nothing expected at this location', 14, y, HEBREW_TEXT_OPTS); }
   closeModal();
@@ -1976,6 +1991,7 @@ function renderAll(){
   renderSessionExpiredBanner();
 }
 try{ DB_URL = localStorage.getItem('stockline_db_url') || ''; }catch(e){ DB_URL=''; }
+sortItemsArray();
 rebuildInventory();
 renderDbSetup();
 </script>
