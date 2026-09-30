@@ -1751,6 +1751,7 @@ function renderReports(){
   document.getElementById('tab-reports').innerHTML = `
     <h2 class="section-title">Reports</h2>
     <button class="report-btn" onclick="openTxReportPicker()"><div><div class="r-title">Transaction report</div><div class="r-desc">Full detail for one transaction, by ID</div></div><div class="arrow">↓</div></button>
+    <button class="report-btn" onclick="openItemHistoryReportPicker()"><div><div class="r-title">Item transaction history</div><div class="r-desc">Every transaction ever recorded for one catalog number</div></div><div class="arrow">↓</div></button>
     <button class="report-btn" onclick="openPersonReportPicker()"><div><div class="r-title">Inventory by person</div><div class="r-desc">What a selected person currently holds</div></div><div class="arrow">↓</div></button>
     <button class="report-btn" onclick="openLocationReportPicker()"><div><div class="r-title">Inventory by location</div><div class="r-desc">What's currently at a selected location</div></div><div class="arrow">↓</div></button>
     <button class="report-btn" onclick="openCountFormPicker()"><div><div class="r-title">Inventory count form</div><div class="r-desc">Printable count sheet for a selected location</div></div><div class="arrow">↓</div></button>
@@ -1816,17 +1817,51 @@ function pdfHeader(doc,title){
   doc.setDrawColor(220,224,220); doc.line(14,33,196,33);
   return 40;
 }
+// Draws a real bordered grid: header background, a vertical line between every column,
+// a horizontal line under every row, and correct multi-line row heights (a wrapped cell no
+// longer overlaps the next row) — with the header redrawn on each new page for tables that
+// span more than one.
 function drawTable(doc, headers, rows, startY){
-  const colCount = headers.length; const pageWidth = 182; const colW = pageWidth/colCount;
+  const colCount = headers.length, tableLeft = 14, tableWidth = 182;
+  const colW = tableWidth/colCount;
+  const lineH = 4.2, padTop = 5, padBottom = 2.5;
   let y = startY;
-  doc.setFontSize(8.5); doc.setFont('Rubik','normal'); doc.setTextColor(47,111,94);
-  headers.forEach((h,i)=>doc.text(String(h), 14+i*colW, y, HEBREW_TEXT_OPTS));
-  y+=3; doc.setDrawColor(220,224,220); doc.line(14,y,196,y); y+=6;
-  doc.setTextColor(27,31,27);
+
+  function drawHeaderRow(){
+    const headerTop = y, headerBottom = y + 8;
+    doc.setFillColor(237,241,234);
+    doc.rect(tableLeft, headerTop, tableWidth, 8, 'F');
+    doc.setFontSize(8.5); doc.setFont('Rubik','normal'); doc.setTextColor(47,111,94);
+    headers.forEach((h,i)=>doc.text(String(h), tableLeft+i*colW+1.5, headerTop+5.5, HEBREW_TEXT_OPTS));
+    doc.setDrawColor(222,226,217);
+    for(let i=0;i<=colCount;i++) doc.line(tableLeft+i*colW, headerTop, tableLeft+i*colW, headerBottom);
+    doc.line(tableLeft, headerTop, tableLeft+tableWidth, headerTop);
+    doc.line(tableLeft, headerBottom, tableLeft+tableWidth, headerBottom);
+    y = headerBottom;
+  }
+
+  drawHeaderRow();
+  doc.setFont('Rubik','normal'); doc.setTextColor(27,31,27);
+
   rows.forEach(row=>{
-    if(y>280){ doc.addPage(); y=20; }
-    row.forEach((cell,i)=>{ const text = doc.splitTextToSize(String(cell ?? ''), colW-2); doc.text(text, 14+i*colW, y, HEBREW_TEXT_OPTS); });
-    y+=7;
+    const cellLines = row.map(cell=>doc.splitTextToSize(String(cell ?? ''), colW-3));
+    const maxLines = Math.max(1, ...cellLines.map(l=>l.length));
+    const rowHeight = padTop + (maxLines-1)*lineH + padBottom;
+    if(y + rowHeight > 283){
+      doc.addPage(); y = 20;
+      drawHeaderRow();
+      doc.setFont('Rubik','normal'); doc.setTextColor(27,31,27);
+    }
+    const rowTop = y;
+    doc.setFontSize(8.5);
+    cellLines.forEach((lines,i)=>{
+      lines.forEach((line,li)=>doc.text(line, tableLeft+i*colW+1.5, rowTop+padTop+li*lineH, HEBREW_TEXT_OPTS));
+    });
+    const rowBottom = rowTop + rowHeight;
+    doc.setDrawColor(222,226,217);
+    doc.line(tableLeft, rowBottom, tableLeft+tableWidth, rowBottom);
+    for(let i=0;i<=colCount;i++) doc.line(tableLeft+i*colW, rowTop, tableLeft+i*colW, rowBottom);
+    y = rowBottom;
   });
   return y;
 }
@@ -1877,6 +1912,41 @@ async function pdfTxReport(){
   y = drawTable(doc, ['Catalog #','Description','Amount','Serial'], rows, y);
   closeModal();
   doc.save(downloadName('transaction_'+g.txNumber));
+  toast('PDF downloaded');
+}
+function openItemHistoryReportPicker(){
+  const opts = state.items.map(i=>`<option value="${i.catalogNumber}">${i.catalogNumber} — ${i.description}</option>`).join('');
+  openModal(`
+    <div class="modal-head"><h3>Item transaction history</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <label>Item</label>
+    <select id="rep_item_history">${opts}</select>
+    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfItemHistoryReport()">Generate PDF</button></div>
+  `);
+}
+async function pdfItemHistoryReport(){
+  const cat = document.getElementById('rep_item_history').value;
+  const it = itemByCat(cat);
+  const doc = new jspdf.jsPDF();
+  await ensureHebrewFont(doc);
+  let y = pdfHeader(doc, 'Item Transaction History — '+cat+(it?' ('+it.description+')':''));
+  const filtered = state.transactions.filter(t=>t.catalogNumber===cat)
+    .sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber);
+  if(!filtered.length){
+    doc.setFontSize(9); doc.setTextColor(120,124,120);
+    doc.text('No transactions recorded for this item yet.', 14, y, HEBREW_TEXT_OPTS);
+  } else {
+    const rows = filtered.map(t=>[
+      '#'+t.txNumber,
+      fmtDate(t.timestamp),
+      locationLabel(t.fromLocationId)+(t.fromPersonId?' ('+personLabel(t.fromPersonId)+')':''),
+      locationLabel(t.toLocationId)+(t.toPersonId?' ('+personLabel(t.toPersonId)+')':''),
+      t.serialNumber || t.amount,
+      t.notes || '—'
+    ]);
+    drawTable(doc, ['ID','Date','From','To','Amount / Serial','Notes'], rows, y);
+  }
+  closeModal();
+  doc.save(downloadName('item_history_'+cat));
   toast('PDF downloaded');
 }
 function openPersonReportPicker(){
