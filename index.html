@@ -1871,7 +1871,27 @@ function drawTable(doc, headers, rows, startY){
   });
   return y;
 }
-function downloadName(prefix){ return prefix+'_'+new Date().toISOString().slice(0,10)+'.pdf'; }
+function downloadName(prefix, ext){ return prefix+'_'+new Date().toISOString().slice(0,10)+'.'+(ext||'pdf'); }
+// CSV export helpers. Excel does NOT reliably auto-detect UTF-8 in a plain .csv — without a
+// byte-order-mark it tends to guess a legacy encoding instead, which turns Hebrew into
+// gibberish. Prefixing the file with \uFEFF (in downloadCSV) fixes that specifically for Excel.
+function csvEscape(v){
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function rowsToCSV(headers, rows){
+  const lines = [headers.map(csvEscape).join(',')];
+  rows.forEach(r=>lines.push(r.map(csvEscape).join(',')));
+  return lines.join('\r\n');
+}
+function downloadCSV(filename, csvContent){
+  const blob = new Blob(['\uFEFF'+csvContent], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 // Report rows are built from inventory/transaction data, not from the (already-sorted)
 // items list directly, so each report sorts its own assembled rows by catalog number
 // (always the first column) right before drawing the table.
@@ -1886,7 +1906,10 @@ function openTxReportPicker(){
     <div class="modal-head"><h3>Transaction report</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Transaction</label>
     <select id="rep_tx">${opts}</select>
-    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfTxReport()">Generate PDF</button></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" onclick="pdfTxReport()">Export as PDF</button>
+      <button class="btn secondary" onclick="csvTxReport()">Export as CSV</button>
+    </div>
   `);
 }
 async function pdfTxReport(){
@@ -1920,6 +1943,25 @@ async function pdfTxReport(){
   doc.save(downloadName('transaction_'+g.txNumber));
   toast('PDF downloaded');
 }
+function csvTxReport(){
+  const num = parseInt(document.getElementById('rep_tx').value,10);
+  const g = groupTransactions().find(x=>x.txNumber===num);
+  const meta = [
+    ['Transaction ID', '#'+g.txNumber],
+    ['Date', fmtDate(g.timestamp)],
+    ['From location', locationLabel(g.fromLocationId)],
+    ['From person', g.fromPersonId?personLabel(g.fromPersonId):'—'],
+    ['To location', locationLabel(g.toLocationId)],
+    ['To person', g.toPersonId?personLabel(g.toPersonId):'—'],
+    ['Notes', g.notes||'—'],
+    ['Transaction user', g.transactionUser||'—'],
+  ];
+  const rows = sortRowsByCat(g.lines.map(l=>[l.catalogNumber, itemByCat(l.catalogNumber)?.description||'', l.amount, l.serialNumber||'—']));
+  const csv = rowsToCSV(['Field','Value'], meta) + '\r\n\r\n' + rowsToCSV(['Catalog #','Description','Amount','Serial'], rows);
+  closeModal();
+  downloadCSV(downloadName('transaction_'+g.txNumber,'csv'), csv);
+  toast('CSV downloaded');
+}
 function openItemHistoryReportPicker(){
   const opts = state.items.map(i=>`<option value="${i.catalogNumber}" data-search="${(i.catalogNumber+' '+i.description).toLowerCase()}">${i.catalogNumber} — ${i.description}</option>`).join('');
   openModal(`
@@ -1927,7 +1969,10 @@ function openItemHistoryReportPicker(){
     <label>Item</label>
     <input type="text" placeholder="Search by catalog # or description…" oninput="filterSelectOptions('rep_item_history', this.value)" style="margin-bottom:6px;">
     <select id="rep_item_history">${opts}</select>
-    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfItemHistoryReport()">Generate PDF</button></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" onclick="pdfItemHistoryReport()">Export as PDF</button>
+      <button class="btn secondary" onclick="csvItemHistoryReport()">Export as CSV</button>
+    </div>
   `);
 }
 async function pdfItemHistoryReport(){
@@ -1956,12 +2001,39 @@ async function pdfItemHistoryReport(){
   doc.save(downloadName('item_history_'+cat));
   toast('PDF downloaded');
 }
+function csvItemHistoryReport(){
+  const cat = document.getElementById('rep_item_history').value;
+  const it = itemByCat(cat);
+  const filtered = state.transactions.filter(t=>t.catalogNumber===cat)
+    .sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber);
+  const header = rowsToCSV(['Item'], [[cat+(it?' — '+it.description:'')]]);
+  let csv = header + '\r\n\r\n';
+  if(!filtered.length){
+    csv += 'No transactions recorded for this item yet.';
+  } else {
+    const rows = filtered.map(t=>[
+      '#'+t.txNumber,
+      fmtDate(t.timestamp),
+      locationLabel(t.fromLocationId)+(t.fromPersonId?' ('+personLabel(t.fromPersonId)+')':''),
+      locationLabel(t.toLocationId)+(t.toPersonId?' ('+personLabel(t.toPersonId)+')':''),
+      t.serialNumber || t.amount,
+      t.notes || '—'
+    ]);
+    csv += rowsToCSV(['ID','Date','From','To','Amount / Serial','Notes'], rows);
+  }
+  closeModal();
+  downloadCSV(downloadName('item_history_'+cat,'csv'), csv);
+  toast('CSV downloaded');
+}
 function openPersonReportPicker(){
   openModal(`
     <div class="modal-head"><h3>Inventory by person</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Person</label>
     <select id="rep_person">${state.people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select>
-    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfPersonReport()">Generate PDF</button></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" onclick="pdfPersonReport()">Export as PDF</button>
+      <button class="btn secondary" onclick="csvPersonReport()">Export as CSV</button>
+    </div>
   `);
 }
 async function pdfPersonReport(){
@@ -1985,12 +2057,31 @@ async function pdfPersonReport(){
   doc.save(downloadName('inventory_person_'+p.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
 }
+function csvPersonReport(){
+  const pid = document.getElementById('rep_person').value;
+  const p = state.people.find(x=>x.id===pid);
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[2]===pid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); return [parts[0], itemByCat(parts[0])?.description||'', state.inventory[k], locationLabel(parts[1])];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].personId===pid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, locationLabel(s.locationId)];
+  });
+  const all=sortRowsByCat([...rows,...serialRows]);
+  const header = rowsToCSV(['Person','ID number','Phone'], [[p.name, p.idNumber||'—', p.phone||'—']]);
+  const csv = header + '\r\n\r\n' + (all.length? rowsToCSV(['Catalog #','Description','Qty / Serial','Location'], all) : 'Currently holding nothing');
+  closeModal();
+  downloadCSV(downloadName('inventory_person_'+p.name.replace(/\s+/g,'_'),'csv'), csv);
+  toast('CSV downloaded');
+}
 function openLocationReportPicker(){
   openModal(`
     <div class="modal-head"><h3>Inventory by location</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Location</label>
     <select id="rep_location">${state.locations.map(l=>`<option value="${l.id}">${l.name}${l.isInitial?' (source)':''}</option>`).join('')}</select>
-    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfLocationReport()">Generate PDF</button></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" onclick="pdfLocationReport()">Export as PDF</button>
+      <button class="btn secondary" onclick="csvLocationReport()">Export as CSV</button>
+    </div>
   `);
 }
 async function pdfLocationReport(){
@@ -2013,12 +2104,32 @@ async function pdfLocationReport(){
   doc.save(downloadName('inventory_location_'+loc.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
 }
+function csvLocationReport(){
+  const lid = document.getElementById('rep_location').value;
+  const loc = state.locations.find(x=>x.id===lid);
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]!==0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); const perId=parts[2];
+    return [parts[0], itemByCat(parts[0])?.description||'', state.inventory[k], perId!=='none'?personLabel(perId):'—'];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', sn, s.personId?personLabel(s.personId):'—'];
+  });
+  const all=sortRowsByCat([...rows,...serialRows]);
+  const header = rowsToCSV(['Location'], [[loc.name]]);
+  const csv = header + '\r\n\r\n' + (all.length? rowsToCSV(['Catalog #','Description','Qty / Serial','Held by'], all) : 'Nothing recorded here');
+  closeModal();
+  downloadCSV(downloadName('inventory_location_'+loc.name.replace(/\s+/g,'_'),'csv'), csv);
+  toast('CSV downloaded');
+}
 function openCountFormPicker(){
   openModal(`
     <div class="modal-head"><h3>Inventory count form</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Location</label>
     <select id="rep_count_location">${state.locations.map(l=>`<option value="${l.id}">${l.name}${l.isInitial?' (source)':''}</option>`).join('')}</select>
-    <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="pdfCountForm()">Generate PDF</button></div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn" onclick="pdfCountForm()">Export as PDF</button>
+      <button class="btn secondary" onclick="csvCountForm()">Export as CSV</button>
+    </div>
   `);
 }
 async function pdfCountForm(){
@@ -2042,6 +2153,23 @@ async function pdfCountForm(){
   closeModal();
   doc.save(downloadName('count_form_'+loc.name.replace(/\s+/g,'_')));
   toast('PDF downloaded');
+}
+function csvCountForm(){
+  const lid = document.getElementById('rep_count_location').value;
+  const loc = state.locations.find(x=>x.id===lid);
+  const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
+    const parts=k.split('__'); const perId=parts[2];
+    return [parts[0], itemByCat(parts[0])?.description||'', perId!=='none'?personLabel(perId):'—', state.inventory[k], '', ''];
+  });
+  const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
+    const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', s.personId?personLabel(s.personId):'—', sn, '', ''];
+  });
+  const all=sortRowsByCat([...rows,...serialRows]);
+  const header = rowsToCSV(['Location'], [[loc.name]]);
+  const csv = header + '\r\n\r\n' + (all.length? rowsToCSV(['Catalog #','Description','Held by','Expected','Counted','Notes'], all) : 'Nothing expected at this location');
+  closeModal();
+  downloadCSV(downloadName('count_form_'+loc.name.replace(/\s+/g,'_'),'csv'), csv);
+  toast('CSV downloaded');
 }
 
 /* ============ MASTER RENDER ============ */
