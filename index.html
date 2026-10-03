@@ -760,7 +760,7 @@ function renderSetup(){
   } else if(setupSub==='items'){
     const rows = state.items.map(it=>{
       const actions = canManageItem() ? `<button class="btn ghost sm" onclick="openEditItem('${it.catalogNumber}')">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="deleteItem('${it.catalogNumber}')">Delete</button>` : '—';
-      const searchAttr = (it.catalogNumber+' '+it.description).toLowerCase();
+      const searchAttr = escapeHtml((it.catalogNumber+' '+it.description).toLowerCase());
       return `<tr data-search="${searchAttr}" onclick="openImageViewer('item','${it.catalogNumber}')" style="cursor:pointer;"><td>${imageThumbHtml('item', it.catalogNumber)}</td><td class="mono">${escapeHtml(it.catalogNumber)}</td><td>${escapeHtml(it.description)}</td><td>${it.hasSerial?'<span class="pill">Yes</span>':'—'}</td><td style="white-space:nowrap;" onclick="event.stopPropagation();">${actions}</td></tr>`;
     });
     tableHtml = rows.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Photo</th><th>Catalog #</th><th>Description</th><th>Serialized</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
@@ -1340,8 +1340,8 @@ function renderInventory(){
       }
       if(!rowsArr.length) return '';
       const table = `<div class="table-wrap-flat"><table class="dtable"><thead><tr>${headers}</tr></thead><tbody>${rowsArr.join('')}</tbody></table></div>`;
-      const searchAttr = (it.catalogNumber+' '+it.description).toLowerCase();
-      return `<details class="inv-group" data-search="${searchAttr}" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${it.description} <span class="hint">${it.catalogNumber}</span></span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
+      const searchAttr = escapeHtml((it.catalogNumber+' '+it.description).toLowerCase());
+      return `<details class="inv-group" data-search="${searchAttr}" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${escapeHtml(it.description)} <span class="hint">${it.catalogNumber}</span></span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
     }).join('') || '<div class="empty">Nothing currently in stock.</div>';
   }
   const itemSearchBar = invSub==='items' ? `
@@ -1515,7 +1515,7 @@ function renderTxRowHtml(r,i){
       ${fromChosen && eligibleItems.length ? `<input type="text" placeholder="Search items…" oninput="filterTxItemOptions(${i}, this.value)" style="margin-bottom:6px;">` : ''}
       <select id="tx_row_cat_${i}" onchange="txRowItemChanged(${i})" ${!fromChosen?'disabled':''}>
         <option value="">${fromChosen? 'Select item…' : 'Choose From location first'}</option>
-        ${eligibleItems.map(x=>`<option value="${x.catalogNumber}" data-search="${(x.catalogNumber+' '+x.description).toLowerCase()}" ${r.catalogNumber===x.catalogNumber?'selected':''}>${x.catalogNumber} — ${x.description}</option>`).join('')}
+        ${eligibleItems.map(x=>`<option value="${x.catalogNumber}" data-search="${escapeHtml((x.catalogNumber+' '+x.description).toLowerCase())}" ${r.catalogNumber===x.catalogNumber?'selected':''}>${escapeHtml(x.catalogNumber)} — ${escapeHtml(x.description)}</option>`).join('')}
       </select>
     </td>
     <td>${detail}</td>
@@ -1963,7 +1963,7 @@ function csvTxReport(){
   toast('CSV downloaded');
 }
 function openItemHistoryReportPicker(){
-  const opts = state.items.map(i=>`<option value="${i.catalogNumber}" data-search="${(i.catalogNumber+' '+i.description).toLowerCase()}">${i.catalogNumber} — ${i.description}</option>`).join('');
+  const opts = state.items.map(i=>`<option value="${i.catalogNumber}" data-search="${escapeHtml((i.catalogNumber+' '+i.description).toLowerCase())}">${escapeHtml(i.catalogNumber)} — ${escapeHtml(i.description)}</option>`).join('');
   openModal(`
     <div class="modal-head"><h3>Item transaction history</h3><button class="close" onclick="closeModal()">&times;</button></div>
     <label>Item</label>
