@@ -695,15 +695,87 @@ function closeModal(){
 document.getElementById('modalBackdrop').addEventListener('click', e=>{ if(e.target.id==='modalBackdrop') closeModal(); });
 
 /* ============ RENDER: OVERVIEW ============ */
+// A non-source location or person should never legitimately go negative — only Initial
+// Stock and vendor sources are allowed to, by design. A negative balance anywhere else is
+// a strong signal of a mistake (overlapping edits, a stale client overcommitting stock) or
+// a genuine data problem, so it's worth surfacing proactively rather than waiting to stumble
+// onto it later.
+function findNegativeBalanceIssues(){
+  return Object.keys(state.inventory).filter(k=>{
+    if(state.inventory[k] >= 0) return false;
+    const locationId = k.split('__')[1];
+    return !isSourceLocation(locationId);
+  }).map(k=>{
+    const parts = k.split('__');
+    return { catalogNumber: parts[0], locationId: parts[1], personId: parts[2]!=='none'?parts[2]:null, amount: state.inventory[k] };
+  });
+}
 function renderOverview(){
-  const locRows = state.locations.map(loc=>{
+  const locWithStock = state.locations.map(loc=>{
     let totalUnits=0;
     Object.keys(state.inventory).filter(k=>k.split('__')[1]===loc.id && state.inventory[k]!==0).forEach(k=>{ totalUnits+=state.inventory[k]; });
-    return `<tr><td>${loc.name}${loc.isInitial?' <span class="pill warn">source</span>':''}</td><td class="num">${totalUnits}</td></tr>`;
-  }).join('');
+    return {loc, totalUnits};
+  }).filter(x=>x.totalUnits!==0);
+  const locRows = locWithStock.map(({loc,totalUnits})=>
+    `<tr><td>${loc.name}${loc.isInitial?' <span class="pill warn">source</span>':''}</td><td class="num">${totalUnits}</td></tr>`
+  ).join('');
+
+  const peopleWithStock = state.people.map(p=>{
+    let totalUnits=0;
+    Object.keys(state.inventory).filter(k=>k.split('__')[2]===p.id && state.inventory[k]!==0).forEach(k=>{ totalUnits+=state.inventory[k]; });
+    return {p, totalUnits};
+  }).filter(x=>x.totalUnits!==0);
+  const peopleRows = peopleWithStock.map(({p,totalUnits})=>
+    `<tr><td>${escapeHtml(p.name)}</td><td class="num">${totalUnits}</td></tr>`
+  ).join('');
+
+  // A quick pulse-check: a handful of counts for instant orientation before diving into
+  // any detail tables below.
+  const itemsInCirculation = new Set(
+    Object.keys(state.inventory).filter(k=>state.inventory[k]!==0).map(k=>k.split('__')[0])
+  ).size;
+  const activeSources = locWithStock.filter(x=>x.loc.isInitial).length;
+  const stats = [
+    [locWithStock.length, 'Locations with stock'],
+    [peopleWithStock.length, 'People holding stock'],
+    [itemsInCirculation, 'Items in circulation'],
+    [activeSources, 'Active source locations'],
+  ];
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
+      ${stats.map(([n,label])=>`
+        <div style="background:var(--chip-bg);border-radius:10px;padding:14px;text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:var(--accent);line-height:1.2;">${n}</div>
+          <div class="hint">${label}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  const issues = findNegativeBalanceIssues();
+  const issuesHtml = issues.length ? `
+    <h2 class="section-title" style="color:var(--danger);">⚠ Data issues</h2>
+    <div class="table-wrap"><table class="dtable"><thead><tr><th>Item</th><th>Location</th><th>Person</th><th>Balance</th></tr></thead><tbody>
+      ${issues.map(i=>{
+        const it = itemByCat(i.catalogNumber);
+        return `<tr onclick="showBucketHistory('${i.catalogNumber}','${i.locationId}','${i.personId||''}')" style="cursor:pointer;">
+          <td class="mono">${i.catalogNumber} ${it?escapeHtml(it.description):''}</td>
+          <td>${locationLabel(i.locationId)}</td>
+          <td>${i.personId?personLabel(i.personId):'—'}</td>
+          <td class="num"><span style="color:var(--danger);">${i.amount}</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table></div>
+    <div class="hint" style="margin:6px 0 4px;">Tap a row to see the transactions behind it.</div>
+  ` : '';
+
   document.getElementById('tab-overview').innerHTML = `
+    ${statsHtml}
+    ${issuesHtml}
     <h2 class="section-title">Locations summary</h2>
-    <div class="table-wrap"><table class="dtable"><thead><tr><th>Location</th><th>Units</th></tr></thead><tbody>${locRows}</tbody></table></div>
+    ${locWithStock.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Location</th><th>Units</th></tr></thead><tbody>${locRows}</tbody></table></div>` : '<div class="empty">No locations currently have any stock.</div>'}
+    <h2 class="section-title">People summary</h2>
+    ${peopleWithStock.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Person</th><th>Units</th></tr></thead><tbody>${peopleRows}</tbody></table></div>` : '<div class="empty">No one currently holds any stock.</div>'}
   `;
 }
 function toggleTxDetail(detailId, chevId){
