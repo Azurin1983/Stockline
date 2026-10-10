@@ -233,7 +233,7 @@ function sortItemsArray(){
 }
 function invKey(cat,locId,perId){ return cat+'__'+locId+'__'+(perId||'none'); }
 function currentBalance(cat,locId,perId){ return state.inventory[invKey(cat,locId,perId)] || 0; }
-function fmtDate(ts){ const d=new Date(ts); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); return `${dd}/${mm}/${d.getFullYear()}`; }
+function fmtDate(ts){ const d=new Date(ts); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); const yy=String(d.getFullYear()).slice(-2); return `${dd}/${mm}/${yy}`; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 // Any free-text field (description, name, notes, etc.) can contain characters that are
 // meaningful in HTML — a double quote breaks out of value="...", a < can break the tag
@@ -696,7 +696,6 @@ document.getElementById('modalBackdrop').addEventListener('click', e=>{ if(e.tar
 
 /* ============ RENDER: OVERVIEW ============ */
 function renderOverview(){
-  const recent = groupTransactions().sort((a,b)=>b.timestamp-a.timestamp || b.txNumber-a.txNumber).slice(0,5);
   const locRows = state.locations.map(loc=>{
     let totalUnits=0;
     Object.keys(state.inventory).filter(k=>k.split('__')[1]===loc.id && state.inventory[k]!==0).forEach(k=>{ totalUnits+=state.inventory[k]; });
@@ -705,8 +704,6 @@ function renderOverview(){
   document.getElementById('tab-overview').innerHTML = `
     <h2 class="section-title">Locations summary</h2>
     <div class="table-wrap"><table class="dtable"><thead><tr><th>Location</th><th>Units</th></tr></thead><tbody>${locRows}</tbody></table></div>
-    <h2 class="section-title">Last 5 transactions</h2>
-    ${renderTxTable(recent, 'ov')}
   `;
 }
 function toggleTxDetail(detailId, chevId){
@@ -720,7 +717,7 @@ function toggleTxDetail(detailId, chevId){
 function renderTxTable(list, idPrefix){
   if(!list.length) return '<div class="empty">No transactions yet.</div>';
   const showActions = canManageTransactions();
-  const colCount = showActions ? 7 : 6;
+  const colCount = showActions ? 8 : 7;
   const rows = list.map(g=>{
     const detailId = `tx-detail-${idPrefix}-${g.txNumber}`;
     const chevId = `tx-chev-${idPrefix}-${g.txNumber}`;
@@ -731,6 +728,7 @@ function renderTxTable(list, idPrefix){
     const actionsCell = showActions ? `<td style="white-space:nowrap;" onclick="event.stopPropagation();"><button class="btn ghost sm" onclick="openEditTransaction(${g.txNumber})">Edit</button> <button class="btn ghost sm" style="color:var(--danger);border-color:#E3C4C4;" onclick="openDeleteTxConfirm(${g.txNumber})">Delete</button></td>` : '';
     return `<tr class="tx-summary-row" onclick="toggleTxDetail('${detailId}','${chevId}')" style="cursor:pointer;">
         <td class="mono">#${g.txNumber} <span id="${chevId}" class="chev" style="display:inline-block;transition:transform .15s;">▸</span></td>
+        <td onclick="event.stopPropagation(); openImageViewer('transaction', ${g.txNumber})" style="cursor:pointer;">${imageThumbHtml('transaction', g.txNumber)}</td>
         <td>${fmtDate(g.timestamp)}</td>
         <td>${locationLabel(g.fromLocationId)}${g.fromPersonId?' ('+personLabel(g.fromPersonId)+')':''}</td>
         <td>${locationLabel(g.toLocationId)}${g.toPersonId?' ('+personLabel(g.toPersonId)+')':''}</td>
@@ -740,7 +738,6 @@ function renderTxTable(list, idPrefix){
       </tr>
       <tr id="${detailId}" style="display:none;">
         <td colspan="${colCount}" style="padding:0 0 12px;background:var(--bg);">
-          ${g.image ? `<div style="margin:0 0 10px 12px;cursor:pointer;" onclick="openImageViewer('transaction',${g.txNumber})">${imageTag(g.image,'width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--line);')} <span class="hint">tap to view photo</span></div>` : ''}
           <div class="table-wrap-flat" style="margin:0 0 0 12px;border:1px solid var(--line);border-radius:10px;">
             <table class="dtable">
               <thead><tr><th>Catalog #</th><th>Description</th><th>Qty</th><th>Serial</th></tr></thead>
@@ -751,7 +748,7 @@ function renderTxTable(list, idPrefix){
       </tr>`;
   }).join('');
   const actionsHeader = showActions ? '<th>Actions</th>' : '';
-  return `<div class="table-wrap"><table class="dtable"><thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Notes</th><th>User</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="dtable"><thead><tr><th>ID</th><th>Photo</th><th>Date</th><th>From</th><th>To</th><th>Notes</th><th>User</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 
@@ -925,6 +922,7 @@ function imageThumbHtml(entityType, id){
   let image=null;
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); image=l&&l.image; }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); image=p&&p.image; }
+  else if(entityType==='transaction'){ const t=state.transactions.find(x=>x.txNumber===id); image=t&&t.image; }
   else { const it=itemByCat(id); image=it&&it.image; }
   const tag = imageTag(image, 'width:36px;height:36px;object-fit:cover;border-radius:8px;');
   return tag || `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
