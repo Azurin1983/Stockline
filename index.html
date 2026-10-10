@@ -468,12 +468,25 @@ function applyRemoteData(data){
   state.people = data.people.map(p=>({...p, image:p.image||null}));
   state.items = data.items.map(it=>({...it, catalogNumber:String(it.catalogNumber), hasSerial: String(it.hasSerial)==='true', image:it.image||null}));
   sortItemsArray();
-  state.transactions = data.transactions.map(t=>({...t,
-    catalogNumber:String(t.catalogNumber),
-    amount:Number(t.amount), timestamp:Number(t.timestamp), txNumber:Number(t.txNumber),
-    fromPersonId:t.fromPersonId||null, toPersonId:t.toPersonId||null,
-    serialNumber:t.serialNumber? String(t.serialNumber) : null
-  }));
+  // Transactions (header, one row per txNumber) and TransItems (one row per line item) are
+  // stored separately to avoid repeating from/to/notes/user on every line of a multi-item
+  // transaction — but everything else in this app was written against a single flat array
+  // of line-item rows, so that's exactly what we reconstruct here, immediately, once.
+  const txHeadByNumber = {};
+  data.transactions.forEach(t=>{ txHeadByNumber[String(t.txNumber)] = t; });
+  state.transactions = (data.transItems||[]).map(item=>{
+    const head = txHeadByNumber[String(item.txNumber)] || {};
+    return {
+      txNumber: Number(item.txNumber),
+      timestamp: Number(head.timestamp),
+      fromLocationId: head.fromLocationId, toLocationId: head.toLocationId,
+      fromPersonId: head.fromPersonId||null, toPersonId: head.toPersonId||null,
+      notes: head.notes||'', transactionUser: head.transactionUser||'',
+      image: head.image||null,
+      catalogNumber: String(item.catalogNumber), amount: Number(item.amount),
+      serialNumber: item.serialNumber? String(item.serialNumber) : null,
+    };
+  });
   state.users = data.users;
   lastKnownModified = data.lastModified || 0;
   updateAvailable = false;
@@ -707,7 +720,7 @@ function toggleTxDetail(detailId, chevId){
 function renderTxTable(list, idPrefix){
   if(!list.length) return '<div class="empty">No transactions yet.</div>';
   const showActions = canManageTransactions();
-  const colCount = showActions ? 6 : 5;
+  const colCount = showActions ? 7 : 6;
   const rows = list.map(g=>{
     const detailId = `tx-detail-${idPrefix}-${g.txNumber}`;
     const chevId = `tx-chev-${idPrefix}-${g.txNumber}`;
@@ -721,11 +734,13 @@ function renderTxTable(list, idPrefix){
         <td>${fmtDate(g.timestamp)}</td>
         <td>${locationLabel(g.fromLocationId)}${g.fromPersonId?' ('+personLabel(g.fromPersonId)+')':''}</td>
         <td>${locationLabel(g.toLocationId)}${g.toPersonId?' ('+personLabel(g.toPersonId)+')':''}</td>
+        <td>${escapeHtml(g.notes)||'—'}</td>
         <td>${g.transactionUser||'—'}</td>
         ${actionsCell}
       </tr>
       <tr id="${detailId}" style="display:none;">
         <td colspan="${colCount}" style="padding:0 0 12px;background:var(--bg);">
+          ${g.image ? `<div style="margin:0 0 10px 12px;cursor:pointer;" onclick="openImageViewer('transaction',${g.txNumber})">${imageTag(g.image,'width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid var(--line);')} <span class="hint">tap to view photo</span></div>` : ''}
           <div class="table-wrap-flat" style="margin:0 0 0 12px;border:1px solid var(--line);border-radius:10px;">
             <table class="dtable">
               <thead><tr><th>Catalog #</th><th>Description</th><th>Qty</th><th>Serial</th></tr></thead>
@@ -736,7 +751,7 @@ function renderTxTable(list, idPrefix){
       </tr>`;
   }).join('');
   const actionsHeader = showActions ? '<th>Actions</th>' : '';
-  return `<div class="table-wrap"><table class="dtable"><thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>User</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="dtable"><thead><tr><th>ID</th><th>Date</th><th>From</th><th>To</th><th>Notes</th><th>User</th>${actionsHeader}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 
@@ -918,6 +933,7 @@ function openImageViewer(entityType, id){
   let name, image, editCall, canEdit;
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); if(!l) return; name=l.name; image=l.image; editCall=`openEditLocation('${id}')`; canEdit=canManageLocation(); }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); if(!p) return; name=p.name; image=p.image; editCall=`openEditPerson('${id}')`; canEdit=canManagePerson(p); }
+  else if(entityType==='transaction'){ const t=state.transactions.find(x=>x.txNumber===id); if(!t) return; name='Transaction #'+id; image=t.image; editCall=`openEditTransaction(${id})`; canEdit=canManageTransactions(); }
   else { const it=itemByCat(id); if(!it) return; name=it.description; image=it.image; editCall=`openEditItem('${id}')`; canEdit=canManageItem(); }
   const tag = imageTag(image, 'width:100%;border-radius:12px;border:1px solid var(--line);');
   openModal(`
@@ -1379,7 +1395,7 @@ function groupTransactions(){
   const order = [];
   state.transactions.forEach(t=>{
     if(!map[t.txNumber]){
-      map[t.txNumber] = {txNumber:t.txNumber, timestamp:t.timestamp, fromLocationId:t.fromLocationId, toLocationId:t.toLocationId, fromPersonId:t.fromPersonId, toPersonId:t.toPersonId, notes:t.notes, transactionUser:t.transactionUser, lines:[]};
+      map[t.txNumber] = {txNumber:t.txNumber, timestamp:t.timestamp, fromLocationId:t.fromLocationId, toLocationId:t.toLocationId, fromPersonId:t.fromPersonId, toPersonId:t.toPersonId, notes:t.notes, transactionUser:t.transactionUser, image:t.image||null, lines:[]};
       order.push(t.txNumber);
     }
     map[t.txNumber].lines.push({catalogNumber:t.catalogNumber, amount:t.amount, serialNumber:t.serialNumber});
@@ -1394,6 +1410,7 @@ function renderMove(){
     ${resetBtn}
     ${renderTxTable(list, 'mv')}
   `;
+  hydrateDriveImages(document.getElementById('tab-move'));
 }
 
 let txDraft = null;
@@ -1408,6 +1425,7 @@ function nextTxNumberPreview(){
 function openTransactionForm(prefillCat){
   if(!canDoTransactions()) return toast('You do not have permission to record transactions');
   editingTxNumber = null;
+  pendingImageData = null;
   txDraft = { fromLocationId:'', fromPersonId:'', toLocationId:'', toPersonId:'', notes:'', user: currentUser||'', rows:[{catalogNumber:prefillCat||'', amount:'', serials:[], newSerials:''}] };
   renderTxModal();
 }
@@ -1460,6 +1478,7 @@ function renderTxModal(){
       <button class="btn ghost sm" onclick="addTxRow()">+ Add item</button>
       <label>Notes (optional)</label>
       <input id="tx_notes" value="${escapeHtml(txDraft.notes||'')}">
+      ${imageFieldHtml(pendingImageData,'tx_image_preview')}
       <label>Transaction user</label>
       <input id="tx_user" value="${escapeHtml(txDraft.user||'')}" placeholder="Who is recording this?">
       <div class="btn-row" style="margin-top:16px;"><button class="btn" onclick="submitTx()">${editingTxNumber!==null?'Save changes':'Confirm transaction'}</button></div>
@@ -1648,10 +1667,11 @@ async function submitTx(){
     }
   }
   const sharedFrom = newRows[0];
+  const imageForSave = connectedToRealDb ? await resolveImageForUpload() : pendingImageData;
   const backendPayload = {
     fromLocationId: sharedFrom.fromLocationId, toLocationId: sharedFrom.toLocationId,
     fromPersonId: sharedFrom.fromPersonId, toPersonId: sharedFrom.toPersonId,
-    notes: sharedFrom.notes, transactionUser: sharedFrom.transactionUser,
+    notes: sharedFrom.notes, transactionUser: sharedFrom.transactionUser, image: imageForSave,
     lines: newRows.map(r=>({catalogNumber:r.catalogNumber, amount:r.amount, serialNumber:r.serialNumber}))
   };
   if(editingTxNumber !== null){
@@ -1659,25 +1679,27 @@ async function submitTx(){
     if(connectedToRealDb){
       try { await callBackend('updateTransaction', {txNumber:txNum, ...backendPayload}); }
       catch(err){ await syncFromBackend(); editingTxNumber=null; closeModal(); toast(err.message); renderAll(); return; }
-      editingTxNumber=null; await syncFromBackend(); closeModal(); toast('Transaction updated'); renderAll(); return;
+      pendingImageData=null; editingTxNumber=null; await syncFromBackend(); closeModal(); toast('Transaction updated'); renderAll(); return;
     }
     const original = state.transactions.find(t=>t.txNumber===editingTxNumber);
     const ts = original ? original.timestamp : Date.now();
     state.transactions = state.transactions.filter(t=>t.txNumber!==txNum);
-    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: txNum, timestamp: ts+idx, ...row}); });
+    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: txNum, timestamp: ts+idx, image:imageForSave, ...row}); });
     editingTxNumber = null;
+    pendingImageData = null;
     rebuildInventory();
     closeModal(); toast('Transaction updated'); renderAll();
   } else {
     if(connectedToRealDb){
       try { await callBackend('createTransaction', backendPayload); }
       catch(err){ await syncFromBackend(); closeModal(); toast(err.message); renderAll(); return; }
-      currentUser = txDraft.user || currentUser;
+      pendingImageData=null; currentUser = txDraft.user || currentUser;
       await syncFromBackend(); closeModal(); toast('Transaction recorded'); renderAll(); return;
     }
     const baseTs = Date.now();
     const batchNumber = nextTxNumberPreview();
-    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: batchNumber, timestamp: baseTs+idx, ...row}); });
+    newRows.forEach((row,idx)=>{ state.transactions.push({id:newId('tx'), txNumber: batchNumber, timestamp: baseTs+idx, image:imageForSave, ...row}); });
+    pendingImageData = null;
     currentUser = txDraft.user || currentUser;
     rebuildInventory();
     closeModal(); toast('Transaction recorded'); renderAll();
@@ -1701,6 +1723,7 @@ function openEditTransaction(txNumber){
     if(r.serialNumber) byCat[r.catalogNumber].serials.push(r.serialNumber);
     else byCat[r.catalogNumber].amount += r.amount;
   });
+  pendingImageData = first.image || null;
   txDraft = {
     originalTimestamp: first.timestamp,
     fromLocationId: first.fromLocationId,
