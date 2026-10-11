@@ -2235,7 +2235,7 @@ async function pdfCountForm(){
   doc.text('Print and use to record a physical count against expected quantities.', 14, y, HEBREW_TEXT_OPTS); y+=9;
   const rows = Object.keys(state.inventory).filter(k=>{ const parts=k.split('__'); return parts[1]===lid && state.inventory[k]>0 && !itemByCat(parts[0])?.hasSerial; }).map(k=>{
     const parts=k.split('__'); const perId=parts[2];
-    return [parts[0], itemByCat(parts[0])?.description||'', perId!=='none'?personLabel(perId):'—', state.inventory[k], '_______', '_______'];
+    return [parts[0], itemByCat(parts[0])?.description||'', perId!=='none'?personLabel(perId):'—', state.inventory[k], '', ''];
   });
   const serialRows = Object.keys(state.serialState).filter(sn=>state.serialState[sn].locationId===lid).map(sn=>{
     const s=state.serialState[sn]; return [s.catalogNumber, itemByCat(s.catalogNumber)?.description||'', s.personId?personLabel(s.personId):'—', sn, '', ''];
