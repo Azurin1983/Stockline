@@ -999,12 +999,13 @@ function imageThumbHtml(entityType, id){
   const tag = imageTag(image, 'width:36px;height:36px;object-fit:cover;border-radius:8px;');
   return tag || `<div style="width:36px;height:36px;border-radius:8px;background:var(--chip-bg);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;">🖼</div>`;
 }
-function openImageViewer(entityType, id){
+function openImageViewer(entityType, id, viewOnly){
   let name, image, editCall, canEdit;
   if(entityType==='location'){ const l=state.locations.find(x=>x.id===id); if(!l) return; name=l.name; image=l.image; editCall=`openEditLocation('${id}')`; canEdit=canManageLocation(); }
   else if(entityType==='person'){ const p=state.people.find(x=>x.id===id); if(!p) return; name=p.name; image=p.image; editCall=`openEditPerson('${id}')`; canEdit=canManagePerson(p); }
   else if(entityType==='transaction'){ const t=state.transactions.find(x=>x.txNumber===id); if(!t) return; name='Transaction #'+id; image=t.image; editCall=`openEditTransaction(${id})`; canEdit=canManageTransactions(); }
   else { const it=itemByCat(id); if(!it) return; name=it.description; image=it.image; editCall=`openEditItem('${id}')`; canEdit=canManageItem(); }
+  if(viewOnly) canEdit=false; // called from a read-only context (e.g. the transaction history drill-down) — never offer to change the photo from here
   const tag = imageTag(image, 'width:100%;border-radius:12px;border:1px solid var(--line);');
   openModal(`
     <div class="modal-head"><h3>${name}</h3><button class="close" onclick="closeModal()">&times;</button></div>
@@ -1347,7 +1348,7 @@ function showBucketHistory(catalogNumber, locationId, personId){
     return {...t, displaySign: isOutflow ? -1 : 1};
   });
   const it = itemByCat(catalogNumber);
-  const title = `<span class="tag">${catalogNumber}</span> ${it?escapeHtml(it.description):''}`;
+  const title = `<span class="tag">${catalogNumber}</span> ${it?`<span onclick="openImageViewer('item','${catalogNumber}',true)" style="cursor:pointer;text-decoration:underline dotted;">${escapeHtml(it.description)}</span>`:''}`;
   const subtitle = pid ? (locationLabel(locationId)+' — '+personLabel(pid)) : locationLabel(locationId);
   renderTxHistoryModal(title, subtitle, filtered);
 }
@@ -1357,7 +1358,7 @@ function showSerialHistory(serialNumber){
     .sort((a,b)=>a.timestamp-b.timestamp || a.txNumber-b.txNumber);
   const s = state.serialState[serialNumber];
   const it = s ? itemByCat(s.catalogNumber) : null;
-  const title = `<span class="tag serial">${serialNumber}</span> ${it?escapeHtml(it.description):''}`;
+  const title = `<span class="tag serial">${serialNumber}</span> ${it?`<span onclick="openImageViewer('item','${it.catalogNumber}',true)" style="cursor:pointer;text-decoration:underline dotted;">${escapeHtml(it.description)}</span>`:''}`;
   renderTxHistoryModal(title, '', filtered);
 }
 function renderInventory(){
