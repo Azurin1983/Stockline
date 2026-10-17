@@ -1379,10 +1379,11 @@ function renderInventory(){
         rowsArr.push({cat:s.catalogNumber, html:`<tr onclick="showSerialHistory('${sn}')" style="cursor:pointer;">${invCheckboxHtml(payload)}<td class="mono">${s.catalogNumber}</td><td>${it?it.description:''}</td><td>${s.personId?personLabel(s.personId):'—'}</td><td class="mono">${sn}</td></tr>`});
         unitCount += 1;
       });
+      if(!rowsArr.length) return '';
       rowsArr.sort((a,b)=>a.cat.localeCompare(b.cat,undefined,{numeric:true,sensitivity:'base'}));
-      const table = rowsArr.length? `<div class="table-wrap-flat"><table class="dtable"><thead><tr><th></th><th>Catalog #</th><th>Description</th><th>Held by</th><th>Qty / Serial</th></tr></thead><tbody>${rowsArr.map(r=>r.html).join('')}</tbody></table></div>` : '<div class="empty">Nothing in stock here.</div>';
+      const table = `<div class="table-wrap-flat"><table class="dtable"><thead><tr><th></th><th>Catalog #</th><th>Description</th><th>Held by</th><th>Qty / Serial</th></tr></thead><tbody>${rowsArr.map(r=>r.html).join('')}</tbody></table></div>`;
       return `<details class="inv-group" ${invGroupAttrs(groupKey)} ontoggle="this.open?openInvGroups.add('${groupKey}'):openInvGroups.delete('${groupKey}')"><summary><span>${loc.name}${loc.isInitial?' <span class="pill warn">source</span>':''}</span><span class="cnt">${unitCount} unit${unitCount===1?'':'s'}<span class="chev">▸</span></span></summary>${table}</details>`;
-    }).join('');
+    }).join('') || '<div class="empty">No locations currently have any stock.</div>';
   } else if(invSub==='people'){
     body = state.people.map(p=>{
       const groupKey = 'per-'+p.id;
